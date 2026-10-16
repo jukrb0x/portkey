@@ -45,7 +45,7 @@ import FollowCore
     func show() { reload(); NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil) }
     func refreshLanguage() {
         let l = state.localizer
-        window.title = l.text("Portkey — Settings / Rebind")
+        window.title = l.text("PortKey — Settings / Rebind")
         for (label, control, key) in labels { label.stringValue = l.text(key); control.setAccessibilityLabel(l.text(key)) }
         note.stringValue = l.text("Connect USB to Mac before rebinding. Select shared branches by location and parent hub; identical upstream hubs are not substitutes. Rebind after changing the Mac port or dock.\nUnplugging or powering off the entire USB switch also looks like leaving Mac. Both hosts must be awake.")
         refresh.title = l.text("Rescan / Revert Edits"); saveButton.title = l.text("Save Binding"); menuButton.title = l.text("Open Status Menu")

@@ -2,6 +2,9 @@ import Foundation
 @main struct Runner {
     @MainActor static func main() async throws {
         DispatchQueue.global().asyncAfter(deadline: .now() + 20) { fputs("FAIL: test runner exceeded 20s deadline\n", stderr); exit(124) }
+        let migration = AppDataMigrationTests()
+        try migration.testLegacyDataAndPreferencesMoveToPortKeyWithoutLosingEnrollment()
+        try migration.testExistingPortKeyDataWinsAndFailedMigrationIsNotSilentlyIgnored()
         let localization = LocalizationTests()
         localization.testEnglishDefaultAndPersistentLanguageDoesNotChangeAutomation()
         localization.testEnglishAndChineseMessagesRenderFromSameStatus()

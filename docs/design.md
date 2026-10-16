@@ -1,4 +1,4 @@
-# Portkey design
+# PortKey design
 
 ## Scope and evidence
 
@@ -38,7 +38,7 @@ Manual input selection cancels stale automatic work and holds the manual choice 
 
 Menu contains a succinct current status, USB ownership status, automatic switching toggle, Switch to Mac (HDMI 1), Switch to Windows (DisplayPort), Settings, Show Logs, Quit. Status distinguishes unknown/partial/disconnected, paused, switching, sent/unverified, verified and error without flooding notifications. Provide a compact settings view to inspect detected hubs/monitor, save or re-enroll the pair, see the selected backend/input mapping, and revert an invalid edit. The app does not require a permanent Dock icon.
 
-Default to English and provide an English / Chinese (Simplified) language submenu. Persist the selection in local preferences and immediately update the menu, settings window, and current status without restart. Controls and app-owned messages use the selected language; backend/system detail can remain in its original language. Keep the bundle identifier `local.usbfollowdisplay.app` and the existing `USBFollowDisplay` configuration/log directory names so installed preferences and enrollment remain compatible.
+Default to English and provide an English / Chinese (Simplified) language submenu. Persist the selection in local preferences and immediately update the menu, settings window, and current status without restart. Controls and app-owned messages use the selected language; backend/system detail can remain in its original language. Use bundle identifier `local.portkey.app` and `PortKey` configuration/log directories. Migrate previous enrollment, logs, automation, and language preferences on first launch; existing PortKey data takes precedence. Migration errors must prevent launch rather than silently selecting a default enrollment.
 
 The [README](../README.md) documents build/run, settings, language selection, recovery, and uninstall. UI verification uses the actual packaged app.
 

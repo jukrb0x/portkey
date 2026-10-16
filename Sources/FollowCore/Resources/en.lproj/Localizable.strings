@@ -1,4 +1,4 @@
-/* Portkey user interface. English keys are the fallback text. */
+/* PortKey user interface. English keys are the fallback text. */
 "Language" = "Language";
 "English" = "English";
 "Chinese (Simplified)" = "Chinese (Simplified)";
@@ -7,7 +7,7 @@
 "Switch to Windows (DisplayPort)" = "Switch to Windows (DisplayPort)";
 "Settings / Rebind…" = "Settings / Rebind…";
 "Show Logs" = "Show Logs";
-"Quit Portkey" = "Quit Portkey";
+"Quit PortKey" = "Quit PortKey";
 "USB: %@" = "USB: %@";
 "Input: %@" = "Input: %@";
 "Not confirmed" = "Not confirmed";
@@ -15,7 +15,7 @@
 "Both hubs absent from Mac" = "Both hubs absent from Mac";
 "Only one hub connected" = "Only one hub connected";
 "Unknown / read failed" = "Unknown / read failed";
-"Portkey — Settings / Rebind" = "Portkey — Settings / Rebind";
+"PortKey — Settings / Rebind" = "PortKey — Settings / Rebind";
 "Monitor system UUID" = "Monitor system UUID";
 "Shared USB2 hub" = "Shared USB2 hub";
 "Shared USB3 hub" = "Shared USB3 hub";

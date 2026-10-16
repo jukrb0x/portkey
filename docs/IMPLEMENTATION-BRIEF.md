@@ -1,6 +1,6 @@
 # Approved implementation brief — 2026-10-16
 
-Portkey is a native Mac-only menu-bar app in a standalone repository. The initial implementation includes paired-hub ownership detection, explicit monitor input selection, enrollment/settings, and bounded helper execution. Architecture choices were delegated; hardware claims must remain tied to recorded observations.
+PortKey is a native Mac-only menu-bar app in a standalone repository. The initial implementation includes paired-hub ownership detection, explicit monitor input selection, enrollment/settings, and bounded helper execution. Architecture choices were delegated; hardware claims must remain tied to recorded observations.
 
 Current design: [design.md](design.md)
 
@@ -10,7 +10,7 @@ Machine-specific acceptance records remain local and are excluded from Git.
 
 ## Product name
 
-The user requested a new name inspired by Harry Potter, Minecraft, London Underground or Sherlock. The selected product/project name is **Portkey** (Harry Potter’s transportation object, with a USB port association). Swift package, executable, bundle display name, menu and current build instructions use Portkey. Keep the existing `local.usbfollowdisplay.app` bundle identifier and Application Support/Logs paths to preserve local settings and enrollment. The user explicitly requested relocating the checkout to `~/dev/portkey`. All commands must now use this directory. Codex saved-project metadata may need to be reselected through its supported UI; do not edit private Codex state.
+The product name is **PortKey**. Swift package, target, executable, bundle name, menu, and documentation use this spelling. The bundle identifier is `local.portkey.app`; configuration and logs use `PortKey` directories. Migrate existing enrollment, logs, automation, and language preferences on first launch; never overwrite newer PortKey data or silently ignore migration failures. The checkout remains `~/dev/portkey`. Do not edit private Codex state.
 
 ## Working context
 
@@ -55,7 +55,7 @@ Unplugging/powering off the whole USB switch can mimic switching to Windows. Thi
 
 ## Language and documentation
 
-Project documentation is English. The app defaults to English and offers an English / Chinese (Simplified) submenu, with the selection saved in local preferences. Language changes update menu, settings, and current status immediately without restart. Controls and app-owned messages use the selected language; hardware/backend errors may include original system detail. Keep the existing bundle identifier and configuration/log directories.
+Project documentation is English. The app defaults to English and offers an English / Chinese (Simplified) submenu, with the selection saved in local preferences. Language changes update menu, settings, and current status immediately without restart. Controls and app-owned messages use the selected language; hardware/backend errors may include original system detail. Use the PortKey bundle identifier and data directories, with one-time legacy migration.
 
 ## Verification and remaining scope
 

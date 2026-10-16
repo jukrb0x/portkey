@@ -1,4 +1,4 @@
-/* Portkey user interface. English keys are the fallback text. */
+/* PortKey user interface. English keys are the fallback text. */
 "Language" = "语言";
 "English" = "English";
 "Chinese (Simplified)" = "简体中文";
@@ -7,7 +7,7 @@
 "Switch to Windows (DisplayPort)" = "切到 Windows（DisplayPort）";
 "Settings / Rebind…" = "设置 / 重新绑定…";
 "Show Logs" = "查看日志";
-"Quit Portkey" = "退出 Portkey";
+"Quit PortKey" = "退出 PortKey";
 "USB: %@" = "USB：%@";
 "Input: %@" = "输入：%@";
 "Not confirmed" = "尚未确认";
@@ -15,7 +15,7 @@
 "Both hubs absent from Mac" = "双 Hub 不在 Mac";
 "Only one hub connected" = "仅部分 Hub 连接";
 "Unknown / read failed" = "未知 / 读取失败";
-"Portkey — Settings / Rebind" = "Portkey — 设置 / 重新绑定";
+"PortKey — Settings / Rebind" = "PortKey — 设置 / 重新绑定";
 "Monitor system UUID" = "显示器系统 UUID";
 "Shared USB2 hub" = "共享 USB2 Hub";
 "Shared USB3 hub" = "共享 USB3 Hub";

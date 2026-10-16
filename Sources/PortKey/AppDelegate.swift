@@ -11,11 +11,12 @@ import FollowCore
     private var automaticItem: NSMenuItem?
     private let ownershipLabels: [Ownership: String] = [.owned: "Mac (both hubs present)", .absent: "Both hubs absent from Mac", .partial: "Only one hub connected", .unknown: "Unknown / read failed"]
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if let id = Bundle.main.bundleIdentifier, let existing = NSRunningApplication.runningApplications(withBundleIdentifier: id).first(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }) {
+        let identities = [Bundle.main.bundleIdentifier, AppDataMigration.legacyBundleIdentifier].compactMap { $0 }
+        if let existing = identities.flatMap({ NSRunningApplication.runningApplications(withBundleIdentifier: $0) }).first(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }) {
             existing.activate(options: []); NSApp.terminate(nil); return
         }
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.image = NSImage(systemSymbolName: "display", accessibilityDescription: "Portkey")
+        item.button?.image = NSImage(systemSymbolName: "display", accessibilityDescription: "PortKey")
         item.button?.imagePosition = .imageLeading
         let menu = NSMenu(); menu.delegate = self; item.menu = menu
         state = AppState(); state.onChange = { [weak self] in self?.updateTitle() }
@@ -38,7 +39,7 @@ import FollowCore
         @discardableResult func action(_ text: String, _ selector: Selector, key: String = "") -> NSMenuItem {
             let entry = NSMenuItem(title: text, action: selector, keyEquivalent: key); entry.target = self; menu.addItem(entry); return entry
         }
-        label("Portkey")
+        label("PortKey")
         statusLine = label(""); usbLine = label(""); inputLine = label("")
         menu.addItem(.separator())
         automaticItem = action(l.text("Automatic switching"), #selector(toggle))
@@ -56,7 +57,7 @@ import FollowCore
             languages.addItem(entry)
         }
         languageItem.submenu = languages; menu.addItem(languageItem)
-        action(l.text("Quit Portkey"), #selector(quit), key: "q")
+        action(l.text("Quit PortKey"), #selector(quit), key: "q")
         updateTitle()
     }
     @objc private func changeLanguage(_ sender: NSMenuItem) {

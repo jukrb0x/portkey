@@ -1,4 +1,4 @@
-# Portkey implementation record
+# PortKey implementation record
 
 This record preserves the implemented plan and the limits of its acceptance evidence. The [implementation brief](IMPLEMENTATION-BRIEF.md) records current scope; the [design](design.md) describes the product. Completed items below refer to the original native-app delivery, with later changes recorded separately.
 
@@ -39,7 +39,7 @@ This record preserves the implemented plan and the limits of its acceptance evid
 
 ### Task 2: Native I/O, packaged helper and real menu-bar app
 
-**Files:** Sources/Portkey/{AppDelegate,USBMonitor,SettingsWindow,AppState}.swift; Sources/FollowCore/{DisplayBackend,ProcessRunner,ConfigurationStore}.swift; scripts/build-app.sh; Resources/Info.plist; Tests/* for process/config adapters; README.md; ThirdParty/m1ddc changes only if needed with provenance.
+**Files:** Sources/PortKey/{AppDelegate,USBMonitor,SettingsWindow,AppState}.swift; Sources/FollowCore/{DisplayBackend,ProcessRunner,ConfigurationStore}.swift; scripts/build-app.sh; Resources/Info.plist; Tests/* for process/config adapters; README.md; ThirdParty/m1ddc changes only if needed with provenance.
 **Interfaces:** IOKit adapter emits complete inventory snapshots or explicit read errors to the core. Backend targets the configured monitor via bundled helper and reports sent/confirmed/inconclusive/failed. App state observes lifecycle and drives the same scheduler for UI and automatic actions. Preferences edits validate before saving and atomically persist.
 
 - [x] Write failing tests for backend arguments, helper failure/deadline/output handling, known input/readback parsing, persistence validation and the selected lifecycle adapter seams.
@@ -66,7 +66,7 @@ Tasks 1/2 implemented and committed; independent review findings fixed with regr
 
 ## Product name, repository, and language support
 
-The product, Swift package/target, executable, and app bundle are named Portkey. The checkout is `~/dev/portkey`, and the delivery branch is `main`. The user handles pushing to GitHub. Keep `local.usbfollowdisplay.app`, `~/Library/Application Support/USBFollowDisplay`, and `~/Library/Logs/USBFollowDisplay` for compatibility.
+The product, Swift package/target, executable, and app bundle are named PortKey. The checkout is `~/dev/portkey`, and the delivery branch is `main`. The user handles pushing to GitHub. Use `local.portkey.app`, `~/Library/Application Support/PortKey`, and `~/Library/Logs/PortKey`, migrating previous app data and preferences without overwriting newer values.
 
 The current language requirement is English by default with a persistent English / Chinese (Simplified) submenu. Selecting a language immediately updates the menu, settings, and current status without restarting. App-owned controls and messages use the selected language, while hardware/backend errors may retain original detail. Language verification belongs to the current change's tests and actual app inspection; the historical 75-check result above predates this addition.
 
@@ -75,3 +75,9 @@ The current language requirement is English by default with a persistent English
 The updated deterministic suite passed 262 checks with no failures. The release build and bundle verification passed, including both localization resources, deployment targets, retained helper license, and ad-hoc signatures. Actual app inspection verified immediate English/Chinese switching, saved language after restart, and preservation of unsaved settings edits. Language changes did not issue display commands. No additional physical switching or sleep trials were performed for this change.
 
 Machine-specific diagnostic captures and workflow folders are excluded from Git, including historical trees. Local recovery copies are ignored.
+
+## PortKey name and data migration
+
+The current spelling is PortKey throughout the app, package, documentation, and illustrations. The bundle identifier is `local.portkey.app`, with configuration under `~/Library/Application Support/PortKey` and logs under `~/Library/Logs/PortKey`. Startup migrates previous data directories and missing automation/language preferences. Existing PortKey data wins; migration failures stop launch, and a running legacy app must quit before migration.
+
+Verification passed 273 deterministic checks, including migration, repeat launches, existing destination data, and failed migration. Release build, bundle localization/license/deployment/signature verification, and actual menu/settings inspection passed. Saved preferences and historic log content were verified after migration; the enrolled device and input values remained unchanged.

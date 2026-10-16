@@ -1,6 +1,6 @@
 import Foundation
 final class DiagnosticLog {
-    let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/USBFollowDisplay/app.log")
+    let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/PortKey/app.log")
     func write(_ text: String) {
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -10,6 +10,6 @@ final class DiagnosticLog {
             if !FileManager.default.fileExists(atPath: url.path) { FileManager.default.createFile(atPath: url.path, contents: nil) }
             let handle = try FileHandle(forWritingTo: url); defer { try? handle.close() }
             try handle.seekToEnd(); try handle.write(contentsOf: Data("\(ISO8601DateFormatter().string(from: Date())) \(text)\n".utf8))
-        } catch { NSLog("Portkey log: %@", error.localizedDescription) }
+        } catch { NSLog("PortKey log: %@", error.localizedDescription) }
     }
 }

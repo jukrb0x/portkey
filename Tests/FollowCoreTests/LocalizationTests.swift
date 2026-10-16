@@ -3,7 +3,7 @@ import FollowCore
 
 final class LocalizationTests {
     func testEnglishDefaultAndPersistentLanguageDoesNotChangeAutomation() {
-        let suite = "Portkey.LocalizationTests.\(UUID().uuidString)"
+        let suite = "PortKey.LocalizationTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(false, forKey: "automatic")
