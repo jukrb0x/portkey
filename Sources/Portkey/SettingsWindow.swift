@@ -13,7 +13,7 @@ import FollowCore
     private var choices: [USBDevice] = []
     init(state: AppState, showMenu: @escaping (NSView) -> Void) {
         self.state = state; self.showMenu = showMenu; super.init()
-        window.title = "USB Follow Display — 设置 / 重新绑定"; window.isReleasedWhenClosed = false
+        window.title = "Portkey — 设置 / 重新绑定"; window.isReleasedWhenClosed = false
         let stack = NSStackView(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 13
         stack.translatesAutoresizingMaskIntoConstraints = false
         window.contentView!.addSubview(stack)

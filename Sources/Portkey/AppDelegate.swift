@@ -15,7 +15,7 @@ import FollowCore
             existing.activate(options: []); NSApp.terminate(nil); return
         }
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.image = NSImage(systemSymbolName: "display", accessibilityDescription: "USB Follow Display")
+        item.button?.image = NSImage(systemSymbolName: "display", accessibilityDescription: "Portkey")
         item.button?.imagePosition = .imageLeading
         let menu = NSMenu(); menu.delegate = self; item.menu = menu
         state = AppState(); state.onChange = { [weak self] in self?.updateTitle() }
@@ -37,7 +37,7 @@ import FollowCore
         @discardableResult func action(_ text: String, _ selector: Selector, key: String = "") -> NSMenuItem {
             let entry = NSMenuItem(title: text, action: selector, keyEquivalent: key); entry.target = self; menu.addItem(entry); return entry
         }
-        label("USB Follow Display")
+        label("Portkey")
         statusLine = label(""); usbLine = label(""); inputLine = label("")
         menu.addItem(.separator())
         automaticItem = action("自动切换", #selector(toggle))
@@ -46,7 +46,7 @@ import FollowCore
         menu.addItem(.separator())
         action("设置 / 重新绑定…", #selector(openSettings), key: ",")
         action("查看日志", #selector(showLogs))
-        action("退出 USB Follow Display", #selector(quit), key: "q")
+        action("退出 Portkey", #selector(quit), key: "q")
         updateTitle()
     }
     @objc private func toggle() { state.toggleAutomatic() }

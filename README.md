@@ -1,4 +1,6 @@
-# USB Follow Display
+# Portkey
+
+**Portkey（门钥匙）**，名字来自 Harry Potter：像门钥匙把人送到另一处，Portkey 把键鼠所在的主机与屏幕输入连在一起。
 
 原生 macOS 菜单栏 app：根据已绑定的共享 USB2 / USB3 Hub，自动把 Philips 27M2N5800 切到 Mac 的 HDMI1（17）或 Windows 的 DisplayPort（15）。Mac 和 Windows 均需保持唤醒；Windows 无需安装软件。
 
@@ -10,7 +12,7 @@
 cd /Users/jabriel/dev/usb-follow-display
 ./scripts/test.sh
 ./scripts/build-app.sh
-open 'dist/USB Follow Display.app'
+open 'dist/Portkey.app'
 ```
 
 构建会编译固定版本的 m1ddc、保留许可证、生成并本地 ad-hoc 签名 `.app`。此开发包尚未公证。默认使用已实测的 Philips UUID 和双 Hub 拓扑。菜单栏显示一个显示器图标；M 表示 Mac 双 Hub 齐全，? 表示双 Hub 不在 Mac，· 表示状态不完整，⏸ 表示暂停。
@@ -21,7 +23,7 @@ open 'dist/USB Follow Display.app'
 
 在“设置 / 重新绑定”检查在线显示器 UUID、共享 USB2/USB3 Hub 的 location 和父 Hub。相同型号的上游 Hub 会同时存在，不能仅按 VID/PID 绑定。更换 Mac 端口、扩展坞或线缆后，请先把 USB 切回 Mac，然后明确选择新的共享分支并保存。无效编辑不会覆盖原配置；“重新扫描 / 撤销编辑”恢复已保存值。
 
-配置：`~/Library/Application Support/USBFollowDisplay/config.json`。自动开关通过 app 的本地偏好保存。日志：`~/Library/Logs/USBFollowDisplay/app.log`（约 512 KB 轮换一次）。不记录键盘内容、鼠标动作或网络信息。
+为保留已有绑定和开关状态，配置目录与 bundle identifier 沿用早期名称。配置：`~/Library/Application Support/USBFollowDisplay/config.json`。自动开关通过 app 的本地偏好保存。日志：`~/Library/Logs/USBFollowDisplay/app.log`（约 512 KB 轮换一次）。不记录键盘内容、鼠标动作或网络信息。
 
 启动时 USB 不在 Mac，只显示未知归属，不会据此切到 Windows。双 Hub 部分到达时等待；键盘单独拔出不会切屏。睡眠取消待执行操作，唤醒后重新枚举；USB 不在 Mac 时不补发旧离开命令。当前实测可在锁屏时恢复外接屏，无需辅助功能权限；但显示器和系统重新就绪有延迟，本机观察到约 23 秒后读回确认，不能保证立即恢复。完整拔掉或断电 USB 切换器与切到 Windows 在物理信号上无法区分。
 
@@ -30,7 +32,7 @@ open 'dist/USB Follow Display.app'
 可从终端只读诊断（不会切屏）：
 
 ```sh
-'dist/USB Follow Display.app/Contents/MacOS/USBFollowDisplay' --diagnose
+'dist/Portkey.app/Contents/MacOS/Portkey' --diagnose
 ```
 
 重新打开已运行的 app 会显示设置窗口；设置中的“打开状态菜单”也能访问同一菜单。`--settings` 启动时显示设置窗口；`--paused` 本次启动先暂停自动切换。缺少 helper 时重新构建 app；配置损坏时打开设置重新保存。退出 app 后删除 `.app` 即可停止使用；可另行删除上述配置、日志目录以及 `local.usbfollowdisplay.app` 偏好。没有安装登录启动项或全局 helper。

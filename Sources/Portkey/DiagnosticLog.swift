@@ -10,6 +10,6 @@ final class DiagnosticLog {
             if !FileManager.default.fileExists(atPath: url.path) { FileManager.default.createFile(atPath: url.path, contents: nil) }
             let handle = try FileHandle(forWritingTo: url); defer { try? handle.close() }
             try handle.seekToEnd(); try handle.write(contentsOf: Data("\(ISO8601DateFormatter().string(from: Date())) \(text)\n".utf8))
-        } catch { NSLog("USBFollowDisplay log: %@", error.localizedDescription) }
+        } catch { NSLog("Portkey log: %@", error.localizedDescription) }
     }
 }

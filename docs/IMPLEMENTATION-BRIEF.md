@@ -4,6 +4,10 @@ The user explicitly asked to build the Mac-only app now, create an independent p
 
 The older design/plan remain research history; use the coherent files for implementation.
 
+## Product name
+
+The user requested a new name inspired by Harry Potter, Minecraft, London Underground or Sherlock. The selected product/project name is **Portkey** (Harry Potter’s transportation object, with a USB port association). Swift package, executable, bundle display name, menu and current build instructions use Portkey. Keep the existing `local.usbfollowdisplay.app` bundle identifier and Application Support/Logs paths to preserve local settings and enrollment. The checkout remains at its saved Codex project path `/Users/jabriel/dev/usb-follow-display`.
+
 ## Working context
 
 Repository: /Users/jabriel/dev/usb-follow-display
