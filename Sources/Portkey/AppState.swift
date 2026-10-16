@@ -5,7 +5,10 @@ import FollowCore
     var configuration: Configuration?
     var policy = OwnershipPolicy()
     var inventory: USBInventory?
-    var status = "正在读取 USB…"
+    private var statusMessage: UIMessage = "Reading USB…"
+    private(set) var language = UILanguage.saved()
+    var localizer: Localizer { Localizer(language: language) }
+    var status: String { statusMessage.localized(using: localizer) }
     var onChange: (() -> Void)?
     let log = DiagnosticLog()
     let helper = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/m1ddc")
@@ -14,7 +17,7 @@ import FollowCore
     private var tokens: [NSObjectProtocol] = []
     private var lastSnapshot = 0.0
     private var previousDisplays: Set<String> = []
-    private var unavailable: String?
+    private var unavailable: UIMessage?
     private var lastLogged = ""
     lazy var scheduler = CommandScheduler(backend: { [weak self] target in
         guard let self, let configuration = self.configuration, self.unavailable == nil else { return .failed("Open settings to repair configuration/backend") }
@@ -23,18 +26,18 @@ import FollowCore
     var now: Double { ProcessInfo.processInfo.systemUptime }
     var automatic: Bool { policy.automatic }
     init() {
-        do { configuration = try ConfigurationStore.standard.load() } catch { unavailable = "配置无效：\(error.localizedDescription)；请打开设置" }
-        if !FileManager.default.isExecutableFile(atPath: helper.path) { unavailable = "缺少后端 m1ddc；请重新构建 app" }
-        scheduler.onChange = { [weak self] text in self?.setStatus(text) }
+        do { configuration = try ConfigurationStore.standard.load() } catch { unavailable = UIMessage("Invalid configuration: %@; open Settings.", error.localizedDescription) }
+        if !FileManager.default.isExecutableFile(atPath: helper.path) { unavailable = "Missing m1ddc backend; rebuild the app." }
+        scheduler.onChange = { [weak self] progress in self?.setStatus(progress.message) }
         if UserDefaults.standard.object(forKey: "automatic") != nil && !UserDefaults.standard.bool(forKey: "automatic") || CommandLine.arguments.contains("--paused") { policy.setAutomatic(false, now: now) }
         monitor.onChange = { [weak self] in self?.reconcile() }
-        do { try monitor.start() } catch { unavailable = error.localizedDescription }
+        do { try monitor.start() } catch { unavailable = UIMessage(error.localizedDescription) }
         previousDisplays = Set(DisplayCatalog.online().map(\.uuid))
         observe(NSWorkspace.willSleepNotification, center: NSWorkspace.shared.notificationCenter) { state in
-            state.policy.sleep(); state.scheduler.submit(nil); state.setStatus("Mac 睡眠；已取消待执行操作")
+            state.policy.sleep(); state.scheduler.submit(nil); state.setStatus("Mac sleeping; pending work cancelled")
         }
         observe(NSWorkspace.didWakeNotification, center: NSWorkspace.shared.notificationCenter) { state in
-            state.policy.wake(now: state.now); state.setStatus("Mac 已唤醒；重新读取 USB"); state.reconcile()
+            state.policy.wake(now: state.now); state.setStatus("Mac awake; reading USB again"); state.reconcile()
         }
         observe(NSApplication.didChangeScreenParametersNotification, center: .default) { state in
             let displays = Set(DisplayCatalog.online().map(\.uuid))
@@ -60,14 +63,14 @@ import FollowCore
             if previous != ownership { log.write("USB \(previous.rawValue) → \(ownership.rawValue)") }
             scheduler.submit(policy.request)
             if let unavailable { setStatus(unavailable) }
-            else if !automatic { setStatus("自动切换已暂停") }
-            else if ownership == .partial { setStatus("USB 双 Hub 尚未齐全；等待稳定") }
-            else if ownership == .unknown { setStatus("USB 状态未知；等待重新绑定") }
-            else if ownership == .absent && policy.request == nil { setStatus("USB 不在 Mac；等待有效切换证据") }
+            else if !automatic { setStatus("Automatic switching paused") }
+            else if ownership == .partial { setStatus("USB hub pair incomplete; waiting to settle") }
+            else if ownership == .unknown { setStatus("USB state unknown; check enrollment") }
+            else if ownership == .absent && policy.request == nil { setStatus("USB absent from Mac; waiting for a valid ownership transition") }
             onChange?()
         } catch {
             inventory = nil; policy.observe(.unknown, now: now); scheduler.submit(nil)
-            setStatus("USB 读取失败：\(error.localizedDescription)")
+            setStatus(UIMessage("USB read failed: %@", error.localizedDescription))
         }
     }
     private func tick() {
@@ -79,7 +82,7 @@ import FollowCore
     func toggleAutomatic() {
         policy.setAutomatic(!automatic, now: now); scheduler.submit(nil)
         UserDefaults.standard.set(automatic, forKey: "automatic")
-        setStatus(automatic ? "自动切换已开启；等待 USB 稳定" : "自动切换已暂停")
+        setStatus(automatic ? "Automatic switching enabled; waiting for USB to settle" : "Automatic switching paused")
         reconcile()
     }
     func manual(_ target: Target) {
@@ -89,14 +92,18 @@ import FollowCore
     func save(_ value: Configuration) throws {
         try ConfigurationStore.standard.save(value)
         configuration = value; unavailable = nil
-        if !FileManager.default.isExecutableFile(atPath: helper.path) { unavailable = "缺少后端 m1ddc；请重新构建 app" }
+        if !FileManager.default.isExecutableFile(atPath: helper.path) { unavailable = "Missing m1ddc backend; rebuild the app." }
         policy.sleep(); policy.wake(now: now)
         // A new scheduler lifetime must not overlap an old helper; submit nil on the existing worker.
         scheduler.submit(nil); log.write("Enrollment saved: \(value.monitor), \(value.usb2.label), \(value.usb3.label)")
-        setStatus("设置已保存；重新读取 USB"); reconcile()
+        setStatus("Settings saved; reading USB again"); reconcile()
     }
-    private func setStatus(_ text: String) {
-        status = text
+    func setLanguage(_ value: UILanguage) {
+        language = value; value.save(); onChange?()
+    }
+    private func setStatus(_ message: UIMessage) {
+        statusMessage = message
+        let text = message.localized(using: Localizer(language: .english))
         if text != lastLogged { log.write(text); lastLogged = text }
         onChange?()
     }

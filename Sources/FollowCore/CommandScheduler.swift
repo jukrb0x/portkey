@@ -5,11 +5,24 @@ public enum CommandResult: Equatable, Sendable {
     case inconclusive(String)
     case failed(String)
     public var isConfirmed: Bool { if case .confirmed = self { return true }; return false }
-    public var description: String {
+    public var message: UIMessage {
         switch self {
-        case .confirmed(let value): return "Readback confirmed: \(value)"
-        case .inconclusive(let message): return "Sent, unverified: \(message)"
-        case .failed(let message): return "Error: \(message)"
+        case .confirmed(let value): return UIMessage("Readback confirmed: %@", String(value))
+        case .inconclusive(let detail): return UIMessage("Sent, unverified: %@", detail)
+        case .failed(let detail): return UIMessage("Error: %@", detail)
+        }
+    }
+    public var description: String { message.localized(using: Localizer(language: .english)) }
+
+}
+
+public enum CommandProgress: Sendable {
+    case switching(Target, Int)
+    case completed(CommandResult)
+    public var message: UIMessage {
+        switch self {
+        case .switching(let target, let attempt): return UIMessage("Switching to %@… (%@/3)", target == .mac ? "Mac" : "Windows", String(attempt))
+        case .completed(let outcome): return outcome.message
         }
     }
 }
@@ -22,7 +35,7 @@ public enum CommandResult: Equatable, Sendable {
     private var desired: InputRequest?
     private var active: Task<Void, Never>?
     public private(set) var result: CommandResult?
-    public var onChange: (@MainActor (String) -> Void)?
+    public var onChange: (@MainActor (CommandProgress) -> Void)?
     public init(backend: @escaping Backend, sleep: @escaping @MainActor (Double) async throws -> Void = { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }) {
         self.backend = backend; self.sleep = sleep
     }
@@ -40,10 +53,10 @@ public enum CommandResult: Equatable, Sendable {
                     do { try await sleep(attempt == 1 ? 0.75 : 1.5) } catch { break }
                     guard !Task.isCancelled, desired == request else { break }
                 }
-                onChange?("Switching to \(request.target.rawValue)… (\(attempt + 1)/3)")
+                onChange?(.switching(request.target, attempt + 1))
                 let outcome = await backend(request.target)
                 guard !Task.isCancelled, desired == request else { break }
-                result = outcome; onChange?(outcome.description)
+                result = outcome; onChange?(.completed(outcome))
                 if outcome.isConfirmed { break }
             }
             active = nil

@@ -9,7 +9,7 @@ import FollowCore
     private var usbLine: NSMenuItem?
     private var inputLine: NSMenuItem?
     private var automaticItem: NSMenuItem?
-    private let ownershipLabels: [Ownership: String] = [.owned: "Mac（双 Hub 齐全）", .absent: "双 Hub 不在 Mac", .partial: "仅部分 Hub 连接", .unknown: "未知 / 读取失败"]
+    private let ownershipLabels: [Ownership: String] = [.owned: "Mac (both hubs present)", .absent: "Both hubs absent from Mac", .partial: "Only one hub connected", .unknown: "Unknown / read failed"]
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let id = Bundle.main.bundleIdentifier, let existing = NSRunningApplication.runningApplications(withBundleIdentifier: id).first(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }) {
             existing.activate(options: []); NSApp.terminate(nil); return
@@ -27,12 +27,13 @@ import FollowCore
         item.button?.title = state.automatic ? (state.policy.ownership == .owned ? " M" : state.policy.ownership == .absent ? " ?" : " ·") : " ⏸"
         item.button?.toolTip = state.status
         statusLine?.title = String(state.status.prefix(110))
-        usbLine?.title = "USB：" + (ownershipLabels[state.policy.ownership] ?? "未知")
-        inputLine?.title = "输入：" + (state.scheduler.result?.description ?? "尚未确认")
+        usbLine?.title = state.localizer.text("USB: %@", ownershipLabels[state.policy.ownership] ?? "Unknown / read failed")
+        inputLine?.title = state.localizer.text("Input: %@", state.scheduler.result?.message.localized(using: state.localizer) ?? state.localizer.text("Not confirmed"))
         automaticItem?.state = state.automatic ? .on : .off
     }
     func menuWillOpen(_ menu: NSMenu) {
         menu.removeAllItems()
+        let l = state.localizer
         @discardableResult func label(_ text: String) -> NSMenuItem { let entry = NSMenuItem(title: text, action: nil, keyEquivalent: ""); entry.isEnabled = false; menu.addItem(entry); return entry }
         @discardableResult func action(_ text: String, _ selector: Selector, key: String = "") -> NSMenuItem {
             let entry = NSMenuItem(title: text, action: selector, keyEquivalent: key); entry.target = self; menu.addItem(entry); return entry
@@ -40,14 +41,28 @@ import FollowCore
         label("Portkey")
         statusLine = label(""); usbLine = label(""); inputLine = label("")
         menu.addItem(.separator())
-        automaticItem = action("自动切换", #selector(toggle))
-        action("切到 Mac（HDMI 1）", #selector(toMac))
-        action("切到 Windows（DisplayPort）", #selector(toWindows))
+        automaticItem = action(l.text("Automatic switching"), #selector(toggle))
+        action(l.text("Switch to Mac (HDMI 1)"), #selector(toMac))
+        action(l.text("Switch to Windows (DisplayPort)"), #selector(toWindows))
         menu.addItem(.separator())
-        action("设置 / 重新绑定…", #selector(openSettings), key: ",")
-        action("查看日志", #selector(showLogs))
-        action("退出 Portkey", #selector(quit), key: "q")
+        action(l.text("Settings / Rebind…"), #selector(openSettings), key: ",")
+        action(l.text("Show Logs"), #selector(showLogs))
+        let languageItem = NSMenuItem(title: l.text("Language"), action: nil, keyEquivalent: "")
+        let languages = NSMenu()
+        for language in UILanguage.allCases {
+            let title = language == .english ? "English" : Localizer(language: .simplifiedChinese).text("Chinese (Simplified)")
+            let entry = NSMenuItem(title: title, action: #selector(changeLanguage(_:)), keyEquivalent: "")
+            entry.representedObject = language.rawValue; entry.target = self; entry.state = state.language == language ? .on : .off
+            languages.addItem(entry)
+        }
+        languageItem.submenu = languages; menu.addItem(languageItem)
+        action(l.text("Quit Portkey"), #selector(quit), key: "q")
         updateTitle()
+    }
+    @objc private func changeLanguage(_ sender: NSMenuItem) {
+        guard let code = sender.representedObject as? String, let language = UILanguage(rawValue: code) else { return }
+        state.setLanguage(language); settings?.refreshLanguage()
+        if let menu = item.menu { menuWillOpen(menu) }
     }
     @objc private func toggle() { state.toggleAutomatic() }
     @objc private func toMac() { state.manual(.mac) }
