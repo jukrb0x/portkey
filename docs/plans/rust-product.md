@@ -1,5 +1,7 @@
 # Rust cross-platform product design and implementation plan
 
+> Historical initial plan: the UI choice and `src/app.rs` ownership below are superseded by [the approved native UI plan](native-ui.md).
+
 ## Intent and scope
 The user requested a new branch, Rust rewrite, broader onboarding and Windows support. This supersedes the previous Swift-only/Mac-only scope. Decisions below are implementation choices delegated to the builder. Keep the historical Swift delivery available while the Rust replacement is validated. No publishing or physical switching during development.
 

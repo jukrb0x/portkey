@@ -1,6 +1,10 @@
 # Implementation brief — 2026-10-16
 
-## Rust product rewrite (current branch scope)
+## Native UI architecture (current approved scope)
+
+The user explicitly requested keeping the Rust core and replacing egui with native UI on the same branch, without stepwise confirmations. macOS uses a thin Swift/AppKit menu-bar and settings frontend linked to a Rust static library. Windows uses native Win32 controls and system tray from Rust. Configuration, policy, hardware operations and lifecycle protection remain shared Rust. See [native UI plan](plans/native-ui.md); this supersedes the prior egui choice. Preserve the Rust configuration schema and explicit enrollment. No browser, egui, eframe or tray-icon UI runtime remains.
+
+## Rust product rewrite
 
 The user requested `codex/rust-cross-platform`: rewrite in Rust, generalize enrollment for other users, and add Windows support. This supersedes the Swift-only/Mac-only architecture below for this branch. See [Rust product plan](plans/rust-product.md). The historical Swift delivery remains a fallback and its hardware evidence does not qualify the new runtime. New installs must start unenrolled with automation off; never ship personal identifiers as Rust defaults. Explicit display targeting, topology identity, bounded serialization and fail-closed startup/sleep behavior remain mandatory. Windows support requires separate build and physical validation; do not claim universal monitor compatibility. Delivery remains local, with no push or release publication.
 

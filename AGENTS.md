@@ -2,7 +2,7 @@
 
 - Work only in this standalone repository; do not edit the user's chezmoi dotfiles.
 - The user approved implementation and architecture choices; keep progressing without routine approval checkpoints.
-- Current branch scope is a Rust rewrite with macOS and Windows support, as requested by the user. Prefer a small desktop UI, native platform adapters and an understandable design; preserve the historical Swift app as fallback during validation.
+- Current branch scope is a Rust rewrite with macOS and Windows support, as requested by the user. Use native AppKit UI on macOS and native Win32 UI on Windows over the shared Rust controller; preserve the historical Swift app as fallback during validation.
 - Read docs/IMPLEMENTATION-BRIEF.md first, then the current spec and plan. The brief records the latest scope and supersedes historical proposal text.
 - Local hardware diagnostics stay outside Git; recorded facts are measured evidence; distinguish simulated tests, command transport success and real visual switching.
 - Device identity includes USB topology, because identical hub VID/PIDs coexist. Do not match by VID/PID alone or persist registry entry IDs.

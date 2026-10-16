@@ -1,17 +1,16 @@
-# Rust preview verification — 2026-10-16
+# Native Rust preview verification — 2026-10-16
 
 Branch: `codex/rust-cross-platform`. Local delivery only; no remote push or release publication.
 
 ## Executed
 
-- `cargo test --locked`: 32 tests passed. Covers ownership/settling/manual transitions, unknown inventory, sleep/wake reset, topology and root-controller identity, migration/persistence, pause-before-persistence, request dispatch/mailbox cancellation, exact display targeting, native empty enumeration, subprocess deadlines/inherited pipes, instance exclusion, lifecycle state, tray action mapping and localized errors.
+- `cargo test --locked`: 41 tests passed. Covers ownership/settling/manual transitions, unknown inventory, sleep/wake reset, topology and root-controller identity, migration/persistence, pause-before-persistence, request dispatch/mailbox cancellation, exact display targeting, native empty enumeration, subprocess deadlines/inherited pipes, instance exclusion, lifecycle state, localized errors, native controller actions/snapshots, C ABI error/string handling, editing cancellation and first-run language persistence.
 - `cargo clippy --locked --all-targets -- -D warnings`: passed on Apple Silicon macOS.
 - `cargo clippy --locked --target x86_64-pc-windows-gnu --all-targets -- -D warnings`: passed. This compiles/type-checks Windows-target Rust including platform FFI declarations, but neither links a Windows executable nor executes its embedded PowerShell/C# bridge.
 - `scripts/test.sh`: 273 historical Swift assertions passed.
-- `scripts/build-rust-app.sh`: release bundle built; plist, ad-hoc signature and pinned helper license comparison passed.
+- `scripts/build-rust-app.sh`: Rust static library and Swift/AppKit release bundle built. Native verifier passed: AppKit linkage, macOS 13 deployment targets for app/CLI/helper, plist, ad-hoc signatures, pinned helper license and provenance.
 - Packaged `--diagnose`: completed successfully, returning zero external displays and zero matching USB devices in the execution environment. This validates empty discovery and fail-closed onboarding, not device enrollment or hardware switching.
-- Independent whole-branch review found no remaining concrete major correctness or safety blockers.
-- Actual packaged app inspection: setup window opened, native accessibility tree exposed, empty enrollment rejected, English/Simplified Chinese controls changed immediately, Chinese glyphs rendered, closing setup hid the window while the process remained running. No configuration was enrolled and no display command was sent.
+- The prior egui preview was visually inspected, but that evidence does not qualify the replacement UI. Current AppKit visual/accessibility acceptance was blocked because the Mac was locked and the automation tool could not unlock it. Windows native UI has only cross-target static checks. Two pure Windows selection/input tests were extracted unchanged into an ignored standalone host harness and passed on macOS; no Win32 calls ran.
 
 ## Findings corrected
 
@@ -23,7 +22,10 @@ Branch: `codex/rust-cross-platform`. Local delivery only; no remote push or rele
 - Direct-attached hubs require verified controller ancestry, not guessed zero parent IDs.
 - Native lifecycle generation and sleep bit use a single atomic snapshot.
 - Helper inherited pipes and large outputs are bounded; startup errors are visible without a console.
-- Quit cancels policy before returning; CJK font fallback and native accessibility are enabled.
+- Quit cancels policy before returning. Native event loops continue ticking while settings are hidden; this is source-reviewed, not long-running acceptance.
+- Removing the old UI dependencies exposed an implicit ColorSync link dependency; the Mac adapter now links the framework explicitly.
+- First-run language preference restoration is covered across controller restarts.
+- Independent source review found Windows refresh discarded offline draft choices; retained selections now survive disconnect/reconnect, with a deterministic merge regression.
 
 ## Still unqualified
 

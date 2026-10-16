@@ -2,7 +2,7 @@
 
 **Switch your USB. Let your display follow.**
 
-PortKey connects a physical two-host USB switch to your monitor's input selection. Its Rust desktop app runs on macOS and Windows, with a small menu-bar/system-tray control and an English / Simplified Chinese setup window. Everything stays on your computer: no account, server, network listener, administrator service, keyboard capture or mouse tracking.
+PortKey connects a physical two-host USB switch to your monitor's input selection. Its shared Rust core runs behind native desktop interfaces: Swift/AppKit on macOS and Win32 controls on Windows, with a small menu-bar/system-tray control and an English / Simplified Chinese setup window. Everything stays on your computer: no account, server, network listener, administrator service, keyboard capture or mouse tracking.
 
 ## Rust preview · 0.2
 
@@ -31,7 +31,7 @@ Install stable Rust. On macOS install Apple Command Line Tools. The lockfile fix
 open dist/PortKey-Rust.app
 ```
 
-The Mac script bundles the pinned m1ddc helper and its license, then ad-hoc signs `dist/PortKey-Rust.app`. This is a local development build, not a notarized public download. An optional repository-local Rust toolchain in ignored `.tools/` is supported without modifying shell dotfiles.
+The Mac script links the Rust static library into the AppKit executable, bundles a diagnostic CLI and the pinned m1ddc helper and its license, then ad-hoc signs `dist/PortKey-Rust.app`. This is a local development build, not a notarized public download. An optional repository-local Rust toolchain in ignored `.tools/` is supported without modifying shell dotfiles.
 
 On Windows, install Rust with the MSVC toolchain and Visual Studio C++ build tools, then run PowerShell in the repository:
 
@@ -46,14 +46,14 @@ The script also creates `dist/PortKey-Windows.zip`. No elevated application priv
 ## First-run setup
 
 1. Connect the USB switch to this computer and keep both hosts awake.
-2. Select the intended monitor. Hover an entry to inspect its stable identity.
+2. Select the intended monitor. Inspect its stable identity in the device selector (macOS also provides tooltips).
 3. Select the **two shared hubs**. Switch USB away and refresh to determine which pair disappears; switch back and select that pair. Identical models are distinguished by physical topology, including parent/controller path. A keyboard-only disconnect must not remove your selected hubs.
 4. Set each host's VCP input value. Common values are DisplayPort `15`/`16` and HDMI `17`/`18`; check your display's documentation. Save the enrollment.
 5. Use the manual buttons to test each direction while watching the display. Only then enable automatic switching.
 
 A command being sent, a monitor reporting its input and a visible picture change are different evidence. The pinned Mac helper does not fully validate DDC replies, so the Rust app reports Mac writes as **sent, unverified**. Windows readback confirmation is still not proof of the visible picture.
 
-Use the tray/menu-bar menu to open settings, pause or select a host. Closing the settings window keeps the controller in the tray; choose **Quit PortKey** to exit. If tray creation fails, the window reports the error and closing it quits.
+Use the tray/menu-bar menu to open settings, pause or select a host. Closing the settings window keeps the controller in the tray; choose **Quit PortKey** to exit. Startup failures are reported rather than leaving a hidden controller without accessible controls.
 
 ## Safe behavior and recovery
 
@@ -78,7 +78,7 @@ Rust settings are stored separately from the old Swift file:
 
 Saved configuration contains only display/hub identities, input mapping, automation and language preferences. Language selection is also kept locally for first-run setup. Invalid JSON displays an error; save a reviewed replacement from setup to recover.
 
-On macOS, **Import existing Swift setup → Load for review** reads the old `config.json`. It does not overwrite that file and imports with automation off. Review and save explicitly. Never share a raw configuration or diagnostic capture without inspecting its device identifiers.
+On macOS, **Import Swift setup…** reads the old `config.json`. It does not overwrite that file and imports with automation off. Review and save explicitly. Never share a raw configuration or diagnostic capture without inspecting its device identifiers.
 
 For opt-in **read-only** discovery (no DDC writes):
 
@@ -98,4 +98,4 @@ cargo clippy --locked --all-targets -- -D warnings
 
 Tests cover policy transitions, topology identity, configuration failure/migration, latest-request dispatch, manual overrides, pause, lifecycle invalidation, helper deadline/output handling and exact display selection. They do not send hardware writes. Physical switching and sleep acceptance require coordinated foreground tests.
 
-See [the Rust plan](docs/plans/rust-product.md), [platform references](docs/RUST-REFERENCE.md), and [current verification](docs/RUST-VERIFICATION.md). Preserve [m1ddc provenance and license](ThirdParty/m1ddc/UPSTREAM.md). Historical Swift tests remain available through `scripts/test.sh`.
+See [the native UI architecture](docs/plans/native-ui.md), [the original Rust plan](docs/plans/rust-product.md), [platform references](docs/RUST-REFERENCE.md), and [current verification](docs/RUST-VERIFICATION.md). Preserve [m1ddc provenance and license](ThirdParty/m1ddc/UPSTREAM.md). Historical Swift tests remain available through `scripts/test.sh`.

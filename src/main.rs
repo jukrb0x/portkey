@@ -23,10 +23,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         return Ok(());
     }
-    let config = portkey::core::Config::path().map_err(std::io::Error::other)?;
-    let _instance =
-        portkey::instance::acquire(config.parent().ok_or("Invalid configuration directory")?)
-            .map_err(std::io::Error::other)?;
-    portkey::app::run()?;
+    #[cfg(target_os = "windows")]
+    portkey::native_windows::run().map_err(std::io::Error::other)?;
+    #[cfg(not(target_os = "windows"))]
+    return Err("Launch the native AppKit bundle built by scripts/build-rust-app.sh. Use --diagnose for read-only discovery.".into());
+    #[cfg(target_os = "windows")]
     Ok(())
 }

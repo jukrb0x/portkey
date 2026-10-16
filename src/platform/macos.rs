@@ -20,10 +20,13 @@ fn helper() -> Result<PathBuf, String> {
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
     fn CGGetOnlineDisplayList(max: u32, displays: *mut u32, count: *mut u32) -> i32;
-    fn CGDisplayCreateUUIDFromDisplayID(display: u32) -> *const std::ffi::c_void;
     fn CGDisplayIsBuiltin(display: u32) -> u32;
     fn CGDisplayVendorNumber(display: u32) -> u32;
     fn CGDisplayModelNumber(display: u32) -> u32;
+}
+#[link(name = "ColorSync", kind = "framework")]
+extern "C" {
+    fn CGDisplayCreateUUIDFromDisplayID(display: u32) -> *const std::ffi::c_void;
 }
 fn displays() -> Result<Vec<Display>, String> {
     unsafe {

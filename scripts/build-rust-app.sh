@@ -7,14 +7,19 @@ cargo build --locked --release
 make -B -C ThirdParty/m1ddc binary
 app="$PWD/dist/PortKey-Rust.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" "$app/Contents/Resources"
-cp target/release/portkey "$app/Contents/MacOS/PortKey"
+swiftc -O -swift-version 5 -target "$(uname -m)-apple-macosx13.0" \
+    -import-objc-header native/portkey.h \
+    -framework AppKit -framework CoreFoundation -framework CoreGraphics -framework ColorSync -framework IOKit \
+    native/macos/*.swift target/release/libportkey.a -o "$app/Contents/MacOS/PortKey"
+cp target/release/portkey "$app/Contents/Helpers/portkey-cli"
 cp ThirdParty/m1ddc/m1ddc "$app/Contents/Helpers/m1ddc"
 cp ThirdParty/m1ddc/LICENSE "$app/Contents/Resources/m1ddc-LICENSE"
 cp ThirdParty/m1ddc/UPSTREAM.md "$app/Contents/Resources/m1ddc-UPSTREAM.md"
 cp Resources/Rust-Info.plist "$app/Contents/Info.plist"
 plutil -lint "$app/Contents/Info.plist"
 codesign --force --sign - "$app/Contents/Helpers/m1ddc"
+codesign --force --sign - "$app/Contents/Helpers/portkey-cli"
 codesign --force --sign - "$app"
 codesign --verify --deep --strict "$app"
-cmp ThirdParty/m1ddc/LICENSE "$app/Contents/Resources/m1ddc-LICENSE"
+scripts/verify-native-bundle.sh "$app"
 printf 'Built: %s\n' "$app"
