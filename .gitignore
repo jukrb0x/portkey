@@ -1,0 +1,9 @@
+.DS_Store
+.build/
+dist/
+.superpowers/
+ThirdParty/m1ddc/.objects/
+ThirdParty/m1ddc/m1ddc
+ThirdParty/m1ddc/library/
+*.xcuserstate
+xcuserdata/
