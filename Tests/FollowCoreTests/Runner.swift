@@ -1,6 +1,7 @@
 import Foundation
 @main struct Runner {
     @MainActor static func main() async throws {
+        DispatchQueue.global().asyncAfter(deadline: .now() + 20) { fputs("FAIL: test runner exceeded 20s deadline\n", stderr); exit(124) }
         let p = PolicyTests()
         p.testTopologyRequiresBothBranchesAndExactParent()
         p.testStartupAbsenceAndInventoryFailureNeverSelectWindows()
@@ -9,14 +10,18 @@ import Foundation
         p.testFailedEnumerationDisarmsDepartureUntilOwnedAgain()
         p.testManualHoldsAcrossPartialAndSameObservationUntilOwnershipChanges()
         p.testPauseAndReenableApplyStartupRules()
+        p.testFailedInventoryCancelsManualWithoutReplayingItAfterRecovery()
+        p.testManualAfterReenableHoldsAcrossTransientPartial()
         p.testSleepWakeAndMonitorReconnectDoNotReplayDeparture()
         try p.testConfigurationRejectsInvalidAndAmbiguousEnrollment()
         let s = SchedulerTests()
         await s.testRetriesBoundedAndInvalidReadbackInconclusive()
         await s.testConfirmedDoesNotRetryOrRepeatIdenticalRequest()
         await s.testOldInflightWriteGetsFinalCorrectionWithoutConcurrency()
+        await s.testCancelledIdenticalRequestCanBeResubmittedBeforeCompletion()
         await s.testPauseCancelsRetryAndIgnoresStaleResult()
         let a = AdapterTests()
+        a.testPolicySettlesWhileMenuRunLoopModeIsTracking()
         try await a.testBackendTargetsOnlyEnrolledUUIDAndRejectsUnknownReadback()
         await a.testMonitorSettlesBeforeReadbackWithoutRepeatedWrites()
         await a.testTransportFailureNeverRunsReadback()

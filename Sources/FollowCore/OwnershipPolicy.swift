@@ -21,7 +21,7 @@ public struct OwnershipPolicy {
     public mutating func observe(_ value: Ownership, now: TimeInterval) {
         guard !sleeping, value != ownership else { return }
         ownership = value
-        if value == .unknown { established = false }
+        if value == .unknown { established = false; invalidate(); return }
         if value == .owned || value == .absent {
             if let anchor = manualAnchor, value != anchor { manualAnchor = nil; invalidate() }
             stable = value
@@ -46,6 +46,7 @@ public struct OwnershipPolicy {
     }
     public mutating func setAutomatic(_ enabled: Bool, now: TimeInterval) {
         automatic = enabled; reset()
+        if ownership == .owned || ownership == .absent { stable = ownership }
         guard enabled else { return }
         if ownership == .owned { deadline = now + 0.3 }
     }

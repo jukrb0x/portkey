@@ -3,6 +3,7 @@ import FollowCore
 
 @MainActor final class SettingsWindow: NSObject {
     private let state: AppState
+    private let showMenu: (NSView) -> Void
     private let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 650, height: 490), styleMask: [.titled, .closable], backing: .buffered, defer: false)
     private let monitor = NSTextField()
     private let usb2 = NSPopUpButton(), usb3 = NSPopUpButton()
@@ -10,8 +11,8 @@ import FollowCore
     private let detected = NSTextField(wrappingLabelWithString: "")
     private let message = NSTextField(wrappingLabelWithString: "")
     private var choices: [USBDevice] = []
-    init(state: AppState) {
-        self.state = state; super.init()
+    init(state: AppState, showMenu: @escaping (NSView) -> Void) {
+        self.state = state; self.showMenu = showMenu; super.init()
         window.title = "USB Follow Display — 设置 / 重新绑定"; window.isReleasedWhenClosed = false
         let stack = NSStackView(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 13
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -32,11 +33,14 @@ import FollowCore
         note.font = .systemFont(ofSize: 12); stack.addArrangedSubview(note); note.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         let refresh = NSButton(title: "重新扫描 / 撤销编辑", target: self, action: #selector(reload))
         let save = NSButton(title: "保存绑定", target: self, action: #selector(save)); save.keyEquivalent = "\r"
-        stack.addArrangedSubview(NSStackView(views: [refresh, save])); stack.addArrangedSubview(message)
+        let menu = NSButton(title: "打开状态菜单", target: self, action: #selector(openMenu(_:)))
+        window.initialFirstResponder = refresh
+        stack.addArrangedSubview(NSStackView(views: [refresh, save, menu])); stack.addArrangedSubview(message)
         message.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         reload(); window.center()
     }
     func show() { reload(); NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil) }
+    @objc private func openMenu(_ sender: NSButton) { showMenu(sender) }
     @objc private func reload() {
         state.reconcile()
         let config = state.configuration ?? .qualified

@@ -43,9 +43,7 @@ import FollowCore
             }
             state.previousDisplays = displays; state.onChange?()
         }
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tick() }
-        }
+        timer = PolicyTicker.start { [weak self] in self?.tick() }
         log.write("App started; helper=\(helper.path); automatic=\(automatic)")
         reconcile()
     }

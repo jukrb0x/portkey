@@ -33,7 +33,7 @@ open 'dist/USB Follow Display.app'
 'dist/USB Follow Display.app/Contents/MacOS/USBFollowDisplay' --diagnose
 ```
 
-`--settings` 启动时显示设置窗口；`--paused` 本次启动先暂停自动切换。缺少 helper 时重新构建 app；配置损坏时打开设置重新保存。退出 app 后删除 `.app` 即可停止使用；可另行删除上述配置、日志目录以及 `local.usbfollowdisplay.app` 偏好。没有安装登录启动项或全局 helper。
+重新打开已运行的 app 会显示设置窗口；设置中的“打开状态菜单”也能访问同一菜单。`--settings` 启动时显示设置窗口；`--paused` 本次启动先暂停自动切换。缺少 helper 时重新构建 app；配置损坏时打开设置重新保存。退出 app 后删除 `.app` 即可停止使用；可另行删除上述配置、日志目录以及 `local.usbfollowdisplay.app` 偏好。没有安装登录启动项或全局 helper。
 
 ## 测试与证据
 

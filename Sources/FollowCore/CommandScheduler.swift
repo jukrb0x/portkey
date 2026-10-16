@@ -47,7 +47,7 @@ public enum CommandResult: Equatable, Sendable {
                 if outcome.isConfirmed { break }
             }
             active = nil
-            if desired != request { start() }
+            if desired != request || Task.isCancelled { start() }
         }
     }
     public func waitUntilIdle() async { while let task = active { await task.value } }

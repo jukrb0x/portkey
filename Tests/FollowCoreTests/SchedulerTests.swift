@@ -32,6 +32,20 @@ import FollowCore
         XCTAssertEqual(calls, [.windows, .mac]); XCTAssertEqual(peak, 1)
         XCTAssertEqual(scheduler.result, .confirmed(17))
     }
+    func testCancelledIdenticalRequestCanBeResubmittedBeforeCompletion() async {
+        var gate: CheckedContinuation<Void, Never>?; var calls = 0
+        let scheduler = CommandScheduler(backend: { _ in
+            calls += 1
+            if calls == 1 { await withCheckedContinuation { gate = $0 } }
+            return .confirmed(17)
+        })
+        let request = InputRequest(target: .mac, generation: 1)
+        scheduler.submit(request)
+        while gate == nil { await Task.yield() }
+        scheduler.submit(nil); scheduler.submit(request); gate?.resume()
+        await scheduler.waitUntilIdle()
+        XCTAssertEqual(calls, 2); XCTAssertEqual(scheduler.result, .confirmed(17))
+    }
     func testPauseCancelsRetryAndIgnoresStaleResult() async {
         var gate: CheckedContinuation<Void, Never>?
         var calls = 0

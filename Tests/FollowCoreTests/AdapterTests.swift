@@ -1,7 +1,19 @@
 import Foundation
+import CoreFoundation
+import Darwin
 import FollowCore
 
 @MainActor final class AdapterTests {
+    func testPolicySettlesWhileMenuRunLoopModeIsTracking() {
+        let mode = CFRunLoopMode(rawValue: "NSEventTrackingRunLoopMode" as CFString)
+        CFRunLoopAddCommonMode(CFRunLoopGetMain(), mode)
+        var policy = OwnershipPolicy(); let began = ProcessInfo.processInfo.systemUptime
+        policy.observe(.owned, now: began)
+        let timer = PolicyTicker.start { _ = policy.tick(now: ProcessInfo.processInfo.systemUptime) }
+        defer { timer.invalidate() }
+        CFRunLoopRunInMode(mode, 0.45, false)
+        XCTAssertEqual(policy.request?.target, .mac)
+    }
     func testBackendTargetsOnlyEnrolledUUIDAndRejectsUnknownReadback() async throws {
         var args: [[String]] = []
         let config = Configuration.qualified
@@ -50,7 +62,16 @@ import FollowCore
         XCTAssertEqual(hung.timedOut, true); XCTAssertEqual(Date().timeIntervalSince(began) < 2, true)
         let missing = await ProcessRunner.run(executable: URL(fileURLWithPath: "/nonexistent/helper"), arguments: [], timeout: 0.1)
         XCTAssertNotEqual(missing.status, 0)
-        let task = Task { await ProcessRunner.run(executable: URL(fileURLWithPath: "/bin/sleep"), arguments: ["10"], timeout: 3) }
+        let marker = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: marker) }
+        let task = Task { await ProcessRunner.run(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", "echo $$ > \"$1\"; exec /bin/sleep 10", "test-helper", marker.path], timeout: 3) }
+        for _ in 0..<200 {
+            if FileManager.default.fileExists(atPath: marker.path) { break }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let pid = (try? String(contentsOf: marker, encoding: .utf8)).flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        XCTAssertNotEqual(pid, nil)
         task.cancel(); let cancelled = await task.value; XCTAssertEqual(cancelled.cancelled, true)
+        if let pid { XCTAssertEqual(kill(pid, 0), -1); XCTAssertEqual(errno, ESRCH) }
     }
 }

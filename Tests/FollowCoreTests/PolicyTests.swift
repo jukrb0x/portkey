@@ -55,6 +55,20 @@ final class PolicyTests {
         XCTAssertNil(p.tick(now: 6))
         p.observe(.owned, now: 7); XCTAssertEqual(p.tick(now: 8)?.target, .mac)
     }
+    func testFailedInventoryCancelsManualWithoutReplayingItAfterRecovery() {
+        var p = OwnershipPolicy(); p.observe(.owned, now: 0); _ = p.tick(now: 1)
+        p.manual(.windows); XCTAssertEqual(p.request?.target, .windows)
+        p.observe(.unknown, now: 2); XCTAssertNil(p.tick(now: 3))
+        p.observe(.owned, now: 4); XCTAssertNil(p.tick(now: 6))
+        p.observe(.absent, now: 7); XCTAssertNil(p.tick(now: 9))
+    }
+    func testManualAfterReenableHoldsAcrossTransientPartial() {
+        var p = OwnershipPolicy(); p.observe(.owned, now: 0); _ = p.tick(now: 1)
+        p.setAutomatic(false, now: 2); p.setAutomatic(true, now: 3); _ = p.tick(now: 4)
+        p.manual(.windows); let request = p.request
+        p.observe(.partial, now: 5); p.observe(.owned, now: 6)
+        XCTAssertEqual(p.tick(now: 8), request)
+    }
     func testSleepWakeAndMonitorReconnectDoNotReplayDeparture() {
         var p = OwnershipPolicy(); p.observe(.owned, now: 0); _ = p.tick(now: 1)
         p.sleep(); p.observe(.absent, now: 2); XCTAssertNil(p.tick(now: 4))
