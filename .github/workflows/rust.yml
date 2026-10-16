@@ -1,0 +1,24 @@
+name: Rust
+on: [push, pull_request]
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo test --locked
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - if: runner.os == 'macOS'
+        run: scripts/build-rust-app.sh
+      - if: runner.os == 'Windows'
+        run: ./scripts/build-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PortKey-${{ runner.os }}
+          path: dist/

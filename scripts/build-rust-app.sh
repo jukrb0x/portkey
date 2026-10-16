@@ -1,0 +1,20 @@
+#!/bin/bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+source scripts/rust-env.sh
+export MACOSX_DEPLOYMENT_TARGET=13.0
+cargo build --locked --release
+make -B -C ThirdParty/m1ddc binary
+app="$PWD/dist/PortKey-Rust.app"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" "$app/Contents/Resources"
+cp target/release/portkey "$app/Contents/MacOS/PortKey"
+cp ThirdParty/m1ddc/m1ddc "$app/Contents/Helpers/m1ddc"
+cp ThirdParty/m1ddc/LICENSE "$app/Contents/Resources/m1ddc-LICENSE"
+cp ThirdParty/m1ddc/UPSTREAM.md "$app/Contents/Resources/m1ddc-UPSTREAM.md"
+cp Resources/Rust-Info.plist "$app/Contents/Info.plist"
+plutil -lint "$app/Contents/Info.plist"
+codesign --force --sign - "$app/Contents/Helpers/m1ddc"
+codesign --force --sign - "$app"
+codesign --verify --deep --strict "$app"
+cmp ThirdParty/m1ddc/LICENSE "$app/Contents/Resources/m1ddc-LICENSE"
+printf 'Built: %s\n' "$app"

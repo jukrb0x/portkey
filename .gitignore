@@ -12,3 +12,7 @@ work/
 
 # Machine-specific captures stay local.
 [Dd]iagnostics/
+
+# Local Rust toolchain and build output
+.tools/
+target/

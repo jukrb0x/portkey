@@ -1,4 +1,10 @@
-# Approved implementation brief — 2026-10-16
+# Implementation brief — 2026-10-16
+
+## Rust product rewrite (current branch scope)
+
+The user requested `codex/rust-cross-platform`: rewrite in Rust, generalize enrollment for other users, and add Windows support. This supersedes the Swift-only/Mac-only architecture below for this branch. See [Rust product plan](plans/rust-product.md). The historical Swift delivery remains a fallback and its hardware evidence does not qualify the new runtime. New installs must start unenrolled with automation off; never ship personal identifiers as Rust defaults. Explicit display targeting, topology identity, bounded serialization and fail-closed startup/sleep behavior remain mandatory. Windows support requires separate build and physical validation; do not claim universal monitor compatibility. Delivery remains local, with no push or release publication.
+
+## Historical Swift delivery
 
 PortKey is a native Mac-only menu-bar app in a standalone repository. The initial implementation includes paired-hub ownership detection, explicit monitor input selection, enrollment/settings, and bounded helper execution. Architecture choices were delegated; hardware claims must remain tied to recorded observations.
 

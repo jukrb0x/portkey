@@ -2,77 +2,100 @@
 
 **Switch your USB. Let your display follow.**
 
-![PortKey: the same shared display follows USB ownership between Mac over HDMI and Windows over DisplayPort.](docs/images/portkey-hero.svg)
+PortKey connects a physical two-host USB switch to your monitor's input selection. Its Rust desktop app runs on macOS and Windows, with a small menu-bar/system-tray control and an English / Simplified Chinese setup window. Everything stays on your computer: no account, server, network listener, administrator service, keyboard capture or mouse tracking.
 
-One monitor, two computers, one keyboard and mouse. PortKey connects the missing piece: press your USB switch, and the monitor follows your peripherals to the right computer. No reaching behind the display or navigating its input menu.
+## Rust preview · 0.2
 
-PortKey lives in the macOS menu bar and uses DDC to select the monitor input. Everything runs on the Mac; Windows needs no software.
+This branch replaces the personal, fixed-hardware setup with explicit onboarding: choose your display, enroll the two shared USB hubs, and map the monitor inputs to **this computer** and **the other computer**. No personal hardware identifiers are shipped as Rust defaults. First run is unenrolled and automation is off.
 
-- **Follow the shared hubs.** Detects the enrolled USB2/USB3 pair, so unplugging a keyboard alone leaves the display where it is.
-- **Take control when you need it.** Select Mac or Windows from the menu, or pause automatic switching.
-- **Use either language.** Switch between English and Simplified Chinese instantly, with your preference saved.
+The Rust app is a development preview. macOS builds and read-only discovery are checked locally; Windows has an implemented native API bridge and cross-target compilation checks, but needs Windows runtime and hardware acceptance. This is not a claim that every monitor, dock or USB switch works. The historical Swift app remains available as a fallback; its physical acceptance results do not qualify the Rust rewrite. See [legacy instructions](docs/SWIFT-README.md).
 
-## Version 0.1
+## Supported setup
 
-This first version is built and tested for a specific desk setup: an Apple Silicon Mac connected by HDMI, a Windows PC connected by DisplayPort, a Philips 27M2N5800, and a UGREEN USB switch with shared USB2/USB3 hubs. Both computers must be awake. The default configuration retains that setup's monitor and hub enrollment; check **Settings / Rebind…** before using it elsewhere.
+- A monitor supporting DDC/CI input selection (VCP `0x60`), enabled in its on-screen menu.
+- Two awake computers, each with its own video cable to the monitor.
+- A two-host USB switch exposing **two shared hubs**, commonly USB2 and USB3. Single-hub switches are not supported in this preview.
+- macOS 13+ on Apple Silicon for the bundled m1ddc backend, or Windows 10/11 with Windows PowerShell 5.1 and the PnpDevice module. Managed Windows policies may block the native bridge.
 
-Broader hardware support and a guided first-run setup are future work. Sleep/wake recovery can take time while macOS and the display become ready. See [Enrollment and recovery](#enrollment-and-recovery) for the current behavior and limits.
+Run automatic switching on **only one controller computer**. Both platforms can act as controller; running them both automatically against one display can cause competing writes. Quit the legacy Swift app before enabling the Rust controller.
 
-## How it connects
-
-Each computer has its own video connection to the shared monitor and a USB connection to the switch. Press the hardware USB switch; PortKey observes the shared hubs on the Mac and requests the matching monitor input. DDC control travels over the Mac's existing HDMI connection.
-
-![Connection diagram: Mac via HDMI, Windows via DisplayPort, and both hosts connected to the USB switch carrying the shared keyboard and mouse. PortKey sends DDC commands from the Mac.](docs/images/connection-diagram.svg)
+DDC availability when another video input is selected depends on the monitor, GPU, dock and cable. A disconnected monitor, duplicate identity, unsupported DDC or ambiguous physical-monitor mapping fails closed. There is no automatic fallback to another display.
 
 ## Build and run
 
-Requires an Apple Silicon Mac, macOS 13 or later, and Apple Command Line Tools (`xcode-select --install`). There are no third-party Swift dependencies or administrator background services.
+Install stable Rust. On macOS install Apple Command Line Tools. The lockfile fixes dependency versions; no webview or Node runtime is used.
 
 ```sh
-cd ~/dev/portkey
-./scripts/test.sh
-./scripts/build-app.sh
-open 'dist/PortKey.app'
+./scripts/test-rust.sh
+./scripts/build-rust-app.sh
+open dist/PortKey-Rust.app
 ```
 
-The build compiles the pinned m1ddc revision, retains its license, and creates a locally ad-hoc-signed app. This development build is not notarized.
+The Mac script bundles the pinned m1ddc helper and its license, then ad-hoc signs `dist/PortKey-Rust.app`. This is a local development build, not a notarized public download. An optional repository-local Rust toolchain in ignored `.tools/` is supported without modifying shell dotfiles.
 
-## Menu and language
+On Windows, install Rust with the MSVC toolchain and Visual Studio C++ build tools, then run PowerShell in the repository:
 
-The menu-bar display icon shows **M** when both Mac hubs are present, **?** when both are absent, **·** for an incomplete or unknown state, and **⏸** when automation is paused. The menu provides USB/input status, automatic switching, manual Mac/Windows selection, settings and re-enrollment, logs, and Quit. Manual selection holds until the next genuine USB ownership transition; it also works while automation is paused. A confirmed DDC readback means the monitor returned the target input value; it does not independently confirm the visible picture.
+```powershell
+cargo test --locked
+./scripts/build-windows.ps1
+./dist/PortKey-Windows/PortKey.exe
+```
 
-The UI defaults to English. Choose **English** or **Simplified Chinese** in the language submenu to save your preference. Menu items, the settings window, and current status text change immediately without restarting the app. Controls use the selected language; hardware/backend errors may include original system or helper details.
+The script also creates `dist/PortKey-Windows.zip`. No elevated application privileges are needed. The Windows bridge uses system PowerShell to invoke native Win32 monitor APIs in a bounded child process; it never installs a script or changes execution policy. Windows CI builds and packages on `windows-latest`; macOS CI builds the app bundle. CI configuration is provided; local work does not publish a release.
 
-## Enrollment and recovery
+## First-run setup
 
-Open **Settings / Rebind…** to inspect the online display UUID, shared USB2/USB3 hub locations, and parent hubs. Identical upstream hubs can coexist, so VID/PID alone cannot identify the shared branches. After moving a Mac port, dock, or cable, switch USB to Mac, explicitly select the new shared branches, and save. Invalid edits leave the saved configuration intact; **Rescan / Revert Edits** restores saved values.
+1. Connect the USB switch to this computer and keep both hosts awake.
+2. Select the intended monitor. Hover an entry to inspect its stable identity.
+3. Select the **two shared hubs**. Switch USB away and refresh to determine which pair disappears; switch back and select that pair. Identical models are distinguished by physical topology, including parent/controller path. A keyboard-only disconnect must not remove your selected hubs.
+4. Set each host's VCP input value. Common values are DisplayPort `15`/`16` and HDMI `17`/`18`; check your display's documentation. Save the enrollment.
+5. Use the manual buttons to test each direction while watching the display. Only then enable automatic switching.
 
-PortKey stores configuration and logs locally:
+A command being sent, a monitor reporting its input and a visible picture change are different evidence. The pinned Mac helper does not fully validate DDC replies, so the Rust app reports Mac writes as **sent, unverified**. Windows readback confirmation is still not proof of the visible picture.
 
-- Bundle identifier: `local.portkey.app`
-- Configuration: `~/Library/Application Support/PortKey/config.json`
-- Log: `~/Library/Logs/PortKey/app.log` (rotated at approximately 512 KB)
+Use the tray/menu-bar menu to open settings, pause or select a host. Closing the settings window keeps the controller in the tray; choose **Quit PortKey** to exit. If tray creation fails, the window reports the error and closing it quits.
 
-Existing configuration, logs, automatic-switching preference, and UI language are migrated from the previous app on first launch. Existing PortKey data takes precedence. Automatic switching and UI language are saved in the app's local preferences. Logs contain device/control state, without keystrokes, mouse activity, or network information.
+## Safe behavior and recovery
 
-If USB is absent at startup, ownership stays unknown and the app does not select Windows. An incomplete hub pair waits; unplugging only the keyboard does not change the input. Sleep cancels pending work. Wake re-enumerates USB and does not replay a stale departure command when USB is absent. A real locked-session trial recovered the external screen without Accessibility permission, but system/display readiness took time: readback confirmation arrived about 23 seconds after wake in that run. Immediate recovery is not guaranteed. Unplugging or powering off the entire USB switch can produce the same signal as selecting Windows.
+- Both enrolled hubs must be observed locally and settle before departure can select the other host. Startup absence never means the other computer owns USB.
+- A partial pair or failed inventory cancels pending automatic work. Peripheral-only changes do not change ownership.
+- Manual selection supersedes queued automation until a genuine USB ownership transition.
+- Sleep/resume notifications invalidate pending work and clear ownership. Wake with absent hubs remains unknown. Enumeration and controller/display readiness may delay recovery.
+- All operations use a serialized worker. At most three attempts with cancellation-aware delays. Helper processes have deadlines and capped, concurrently drained output. A write already inside a driver cannot be undone; a newer valid request runs afterward.
+- Pause takes effect even if saving preferences fails. Invalid configuration cannot silently load an enrollment or enable writes.
+- Moving a hub, dock or cable can change topology: edit the setup and enroll it again.
 
-Writes always target the enrolled display UUID. A request makes at most three attempts, with failure delays of 750 and 1500 ms. Each helper process has a 2.5-second deadline and is terminated and reaped if necessary. This Philips can return 0 for the first few seconds after a write, so the backend waits 4 seconds before reading back; cancellation or reversal interrupts the wait. Zero, malformed output, and values outside the enrolled inputs remain unconfirmed.
+Unplugging or powering off the entire USB switch looks like switching to the other host. PortKey cannot distinguish these cases, wake arbitrary hosts, or control the physical USB switch.
 
-For read-only terminal diagnostics, which do not switch inputs:
+## Data and migration
+
+Rust settings are stored separately from the old Swift file:
+
+| Platform | Configuration |
+| --- | --- |
+| macOS | `~/Library/Application Support/PortKey/config-rust.json` |
+| Windows | `%APPDATA%\PortKey\config-rust.json` |
+
+Saved configuration contains only display/hub identities, input mapping, automation and language preferences. Language selection is also kept locally for first-run setup. Invalid JSON displays an error; save a reviewed replacement from setup to recover.
+
+On macOS, **Import existing Swift setup → Load for review** reads the old `config.json`. It does not overwrite that file and imports with automation off. Review and save explicitly. Never share a raw configuration or diagnostic capture without inspecting its device identifiers.
+
+For opt-in **read-only** discovery (no DDC writes):
 
 ```sh
-'dist/PortKey.app/Contents/MacOS/PortKey' --diagnose
+dist/PortKey-Rust.app/Contents/MacOS/PortKey --diagnose
 ```
 
-Reopening the running app shows settings. **Open Status Menu** in settings opens the same menu. Launch with `--settings` to show settings immediately or `--paused` to start that session with automation paused. Rebuild the app if the helper is missing; open settings and save a valid enrollment if configuration is damaged.
+Quit and remove the app/folder to uninstall. Optionally remove the Rust configuration and local language preference. The app installs no login item, global helper or service.
 
-To uninstall, quit and delete the app. You can also remove the configuration/log directories above and the preferences for `local.portkey.app`. The app installs no login item or global helper.
+## Development and evidence
 
-## Tests and evidence
+```sh
+cargo fmt --check
+cargo test --locked
+cargo clippy --locked --all-targets -- -D warnings
+```
 
-`./scripts/test.sh` runs deterministic Swift policy, scheduling, real-process timeout/output, and configuration checks without DDC writes. The suite uses a SwiftPM executable assertion runner so it also works with Command Line Tools installations that lack XCTest/Swift Testing. Build verification is available through `./scripts/verify-bundle.sh`.
+Tests cover policy transitions, topology identity, configuration failure/migration, latest-request dispatch, manual overrides, pause, lifecycle invalidation, helper deadline/output handling and exact display selection. They do not send hardware writes. Physical switching and sleep acceptance require coordinated foreground tests.
 
-See the [design](docs/design.md) and [implementation record](docs/implementation-plan.md) for architecture and qualified hardware behavior. Machine-specific logs, device inventories, and acceptance transcripts are local-only and excluded from Git. Simulated lifecycle tests do not replace real sleep acceptance.
-
-The backend revision, provenance, and license are documented in [ThirdParty/m1ddc/UPSTREAM.md](ThirdParty/m1ddc/UPSTREAM.md).
+See [the Rust plan](docs/plans/rust-product.md), [platform references](docs/RUST-REFERENCE.md), and [current verification](docs/RUST-VERIFICATION.md). Preserve [m1ddc provenance and license](ThirdParty/m1ddc/UPSTREAM.md). Historical Swift tests remain available through `scripts/test.sh`.
