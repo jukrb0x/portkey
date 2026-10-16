@@ -2,6 +2,8 @@
 
 The user explicitly asked to build the Mac-only app now, create an independent project under ~/dev/, initialize Git, keep advancing, add a small UI/menu bar, and test repeated switching and sleep recovery. They delegated architecture choices. They also authorized a new local Codex chat and a Codex project for this work.
 
+The older design/plan remain research history; use the coherent files for implementation.
+
 ## Working context
 
 Repository: /Users/jabriel/dev/usb-follow-display
