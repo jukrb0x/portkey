@@ -23,7 +23,7 @@ open 'dist/USB Follow Display.app'
 
 配置：`~/Library/Application Support/USBFollowDisplay/config.json`。自动开关通过 app 的本地偏好保存。日志：`~/Library/Logs/USBFollowDisplay/app.log`（约 512 KB 轮换一次）。不记录键盘内容、鼠标动作或网络信息。
 
-启动时 USB 不在 Mac，只显示未知归属，不会据此切到 Windows。双 Hub 部分到达时等待；键盘单独拔出不会切屏。睡眠取消待执行操作，唤醒后重新枚举；USB 不在 Mac 时不补发旧离开命令。完整拔掉或断电 USB 切换器与切到 Windows 在物理信号上无法区分。
+启动时 USB 不在 Mac，只显示未知归属，不会据此切到 Windows。双 Hub 部分到达时等待；键盘单独拔出不会切屏。睡眠取消待执行操作，唤醒后重新枚举；USB 不在 Mac 时不补发旧离开命令。当前实测可在锁屏时恢复外接屏，无需辅助功能权限；但显示器和系统重新就绪有延迟，本机观察到约 23 秒后读回确认，不能保证立即恢复。完整拔掉或断电 USB 切换器与切到 Windows 在物理信号上无法区分。
 
 写入始终明确指定显示器 UUID。每个请求最多尝试 3 次，失败间隔 750/1500 ms；每个 helper 进程有 2.5 s 上限，并会被终止和回收。此 Philips 切换后最初数秒可能读回 0，所以每次写入后等待 4 s 再读回；取消或反转会立即打断等待。0、乱码、非已绑定输入均显示未确认，不会声称画面切换成功。
 
