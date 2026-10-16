@@ -9,7 +9,7 @@
 需要 Apple Silicon Mac、macOS 13+ 和 Apple Command Line Tools（`xcode-select --install`）。无第三方 Swift 依赖、无管理员后台服务。
 
 ```sh
-cd /Users/jabriel/dev/usb-follow-display
+cd /Users/jabriel/dev/portkey
 ./scripts/test.sh
 ./scripts/build-app.sh
 open 'dist/Portkey.app'

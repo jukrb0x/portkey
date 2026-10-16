@@ -6,11 +6,11 @@ The older design/plan remain research history; use the coherent files for implem
 
 ## Product name
 
-The user requested a new name inspired by Harry Potter, Minecraft, London Underground or Sherlock. The selected product/project name is **Portkey** (Harry Potter’s transportation object, with a USB port association). Swift package, executable, bundle display name, menu and current build instructions use Portkey. Keep the existing `local.usbfollowdisplay.app` bundle identifier and Application Support/Logs paths to preserve local settings and enrollment. The checkout remains at its saved Codex project path `/Users/jabriel/dev/usb-follow-display`.
+The user requested a new name inspired by Harry Potter, Minecraft, London Underground or Sherlock. The selected product/project name is **Portkey** (Harry Potter’s transportation object, with a USB port association). Swift package, executable, bundle display name, menu and current build instructions use Portkey. Keep the existing `local.usbfollowdisplay.app` bundle identifier and Application Support/Logs paths to preserve local settings and enrollment. The user explicitly requested relocating the checkout to `/Users/jabriel/dev/portkey`. All commands must now use this directory. Codex saved-project metadata may need to be reselected through its supported UI; do not edit private Codex state.
 
 ## Working context
 
-Repository: /Users/jabriel/dev/usb-follow-display
+Repository: /Users/jabriel/dev/portkey
 Initial branch: codex/initial-app
 No user code existed in this directory before initialization. It is already separate from chezmoi; do not create a nested worktree just to satisfy isolation ceremony.
 
