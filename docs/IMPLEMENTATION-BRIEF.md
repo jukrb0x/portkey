@@ -1,8 +1,12 @@
 # Approved implementation brief — 2026-10-16
 
-The user explicitly asked to build the Mac-only app now, create an independent project under ~/dev/, initialize Git, keep advancing, add a small UI/menu bar, and test repeated switching and sleep recovery. They delegated architecture choices. They also authorized a new local Codex chat and a Codex project for this work.
+Portkey is a native Mac-only menu-bar app in a standalone repository. The initial implementation includes paired-hub ownership detection, explicit monitor input selection, enrollment/settings, and bounded helper execution. Architecture choices were delegated; hardware claims must remain tied to recorded observations.
 
-The older design/plan remain research history; use the coherent files for implementation.
+Current design: [design.md](design.md)
+
+Implementation record: [implementation-plan.md](implementation-plan.md)
+
+Acceptance evidence: [app-acceptance.md](../diagnostics/app-acceptance.md)
 
 ## Product name
 
@@ -11,18 +15,18 @@ The user requested a new name inspired by Harry Potter, Minecraft, London Underg
 ## Working context
 
 Repository: /Users/jabriel/dev/portkey
-Initial branch: codex/initial-app
-No user code existed in this directory before initialization. It is already separate from chezmoi; do not create a nested worktree just to satisfy isolation ceremony.
+Delivery branch: main
+The repository is separate from the user's chezmoi dotfiles.
 
-Continue implementation in this repository. The user has approved the design direction and does not want another general approval round. The menu-bar addition and architecture choices below are delegated implementation decisions. Resolve ordinary choices and record them rather than stopping.
+Work in this repository and preserve compatibility with the existing local app data. The user handles pushing to GitHub; no remote publication is part of local delivery.
 
 ## Chosen architecture
 
-Swift native macOS app, SwiftPM-managed testable core, IOKit USB lifecycle observation, NSWorkspace sleep/wake notifications, and a small AppKit menu-bar UI (SwiftUI can be used for a compact settings view if helpful). Use the vendored, pinned m1ddc backend compiled into the .app bundle. No Windows client, server, network listener or external UI framework is needed for this first release.
+Swift native macOS app, SwiftPM-managed testable core, IOKit USB lifecycle observation, NSWorkspace sleep/wake notifications, and a small AppKit menu-bar UI and settings window. Use the vendored, pinned m1ddc backend compiled into the .app bundle. No Windows client, server, network listener or external UI framework is needed for this first release.
 
-Use a single serialized scheduler with bounded helper lifetime and latest-state cancellation. Separate pure ownership policy from USB enumeration, DDC process transport and UI. App UI should provide status, automatic switching on/off, manual Mac/Windows input selection, an understandable error/status indication, and a way to inspect/re-enroll the monitor/hub pair after cabling changes. Ship a .app bundle built by a reproducible script; preserve the original helper license. App should run from this repo's ignored dist directory for initial acceptance. An Applications install or login-start option can be provided after the foreground app works; do not require administrator privileges or globally install the helper.
+Use a single serialized scheduler with bounded helper lifetime and latest-state cancellation. Separate pure ownership policy from USB enumeration, DDC process transport and UI. App UI should provide status, automatic switching on/off, manual Mac/Windows input selection, an understandable error/status indication, and a way to inspect/re-enroll the monitor/hub pair after cabling changes. Ship a .app bundle built by a reproducible script; preserve the original helper license. App should run from this repo's ignored dist directory for initial acceptance. The first release uses manual app launch and does not install a login item. Do not require administrator privileges or globally install the helper.
 
-Manual input selection must not be instantly undone by a stale automatic action. Decide and document a simple policy, such as canceling pending actions and waiting for the next genuine USB ownership transition.
+Manual input selection must not be instantly undone by a stale automatic action. Cancel pending actions and hold manual selection until the next genuine USB ownership transition.
 
 ## Measured hardware and commands
 
@@ -57,12 +61,14 @@ Startup absent => unknown, not Windows. Sleep cancels pending work and clears pr
 
 Unplugging/powering off the whole USB switch can mimic switching to Windows. This is a physical observability limit, not something keyboard activity fixes. Document it. Initial supported workflow keeps both hosts awake. Windows not being awake caused inconclusive black-screen/return-to-HDMI behavior before the successful DDC test; qualify wake readiness separately.
 
-## Execution and verification
+## Language and documentation
 
-1. Update the existing plan for a menu-bar product and the now-selected paired-hub trigger; the historical proposal has superseding update blocks. Commit that coherent plan/spec before product implementation.
-2. Write meaningful failing tests for the pure policy and scheduling behavior, implement and run them green. Cover paired hub matching, duplicate interfaces, partial arrival, keyboard unplug, startup absence, rapid reversals, old in-flight writes, helper deadline/failure, invalid readback, pause/manual override, and sleep/wake.
-3. Integrate native USB events, vendored helper packaging, menu UI, configuration persistence and single-instance behavior. Build and launch a real .app, inspect UI with native automation if possible, and make startup/backend failures understandable.
-4. Run bounded real-hardware acceptance. Request user cooperation for physical USB switching. Record actual observations separately from simulated tests. Coordinate real Mac sleep with the user (they must be able to wake it); do not claim actual sleep recovery from synthetic notifications alone. If user input is pending, keep doing independent work.
-5. Fresh review, fixes and final verification; commit in logical units. Leave the useful app and local repository ready to continue. Do not push/publish without a request.
+Project documentation is English. The app defaults to English and offers an English / Chinese (Simplified) submenu, with the selection saved in local preferences. Language changes update menu, settings, and current status immediately without restart. Controls and app-owned messages use the selected language; hardware/backend errors may include original system detail. Keep the existing bundle identifier and configuration/log directories.
 
-No need to create another chat for subtasks. This dedicated project chat is the user-authorized local session. Use agents only when applicable skill instructions require them. Never mark hardware acceptance done until real evidence exists.
+## Verification and remaining scope
+
+The original native delivery passed the dependency-free assertion runner (75 checks), release build, actual deployment-target checks, plist/license verification, and ad-hoc signature checks. Those results predate the language-support change; current verification must be recorded separately.
+
+The user confirmed one full physical round trip and several additional ad hoc switches, plus HHKB-only unplug/reconnect, and explicitly declined 20 repeated cycles. Four real sleep trials were recorded. The final Windows-awake trial confirmed eventual recovery while the Mac remained locked, without Accessibility permission. Readback arrived about 23 seconds after wake in that observed run; this is not an immediate-recovery guarantee.
+
+Startup or real wake while USB remains switched to Windows and monitor power-cycle behavior remain unqualified physical cases. Keep simulated policy checks, helper transport success, DDC readback, and visually confirmed switching distinct. Further physical switching and real Mac sleep tests require coordination with the user. Do not repeat completed hardware trials merely to satisfy an obsolete test count.
