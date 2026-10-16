@@ -1,8 +1,20 @@
 # Portkey
 
-Portkey takes its name from Harry Potter's transportation object: it connects the host using your shared keyboard and mouse with the monitor input you need.
+**Switch your USB. Let your display follow.**
 
-This native macOS menu-bar app follows an enrolled pair of shared USB2/USB3 hubs and selects Mac HDMI1 (17) or Windows DisplayPort (15) on a Philips 27M2N5800. Both computers must remain awake. Windows needs no software.
+One monitor, two computers, one keyboard and mouse. Portkey connects the missing piece: press your USB switch, and the monitor follows your peripherals to the right computer. No reaching behind the display or navigating its input menu.
+
+Portkey lives in the macOS menu bar and uses DDC to select the monitor input. Everything runs on the Mac; Windows needs no software.
+
+- **Follow the shared hubs.** Detects the enrolled USB2/USB3 pair, so unplugging a keyboard alone leaves the display where it is.
+- **Take control when you need it.** Select Mac or Windows from the menu, or pause automatic switching.
+- **Use either language.** Switch between English and Simplified Chinese instantly, with your preference saved.
+
+## Version 0.1
+
+This first version is built and tested for a specific desk setup: an Apple Silicon Mac connected by HDMI, a Windows PC connected by DisplayPort, a Philips 27M2N5800, and a UGREEN USB switch with shared USB2/USB3 hubs. Both computers must be awake. The default configuration retains that setup's monitor and hub enrollment; check **Settings / Rebind…** before using it elsewhere.
+
+Broader hardware support and a guided first-run setup are future work. Sleep/wake recovery can take time while macOS and the display become ready. See [Enrollment and recovery](#enrollment-and-recovery) for the current behavior and limits.
 
 ## Build and run
 
@@ -15,7 +27,9 @@ cd ~/dev/portkey
 open 'dist/Portkey.app'
 ```
 
-The build compiles the pinned m1ddc revision, retains its license, and creates a locally ad-hoc-signed app. This development build is not notarized. Its default enrollment uses the tested Philips UUID and paired-hub topology.
+The build compiles the pinned m1ddc revision, retains its license, and creates a locally ad-hoc-signed app. This development build is not notarized.
+
+## Menu and language
 
 The menu-bar display icon shows **M** when both Mac hubs are present, **?** when both are absent, **·** for an incomplete or unknown state, and **⏸** when automation is paused. The menu provides USB/input status, automatic switching, manual Mac/Windows selection, settings and re-enrollment, logs, and Quit. Manual selection holds until the next genuine USB ownership transition; it also works while automation is paused. A confirmed DDC readback means the monitor returned the target input value; it does not independently confirm the visible picture.
 
@@ -49,8 +63,8 @@ To uninstall, quit and delete the app. You can also remove the configuration/log
 
 ## Tests and evidence
 
-`./scripts/test.sh` runs deterministic Swift policy, scheduling, real-process timeout/output, and configuration checks without DDC writes. This machine has Command Line Tools without XCTest/Swift Testing, so the suite uses a SwiftPM executable assertion runner; `swift test` is unavailable here. Build verification is available through `./scripts/verify-bundle.sh`.
+`./scripts/test.sh` runs deterministic Swift policy, scheduling, real-process timeout/output, and configuration checks without DDC writes. The suite uses a SwiftPM executable assertion runner so it also works with Command Line Tools installations that lack XCTest/Swift Testing. Build verification is available through `./scripts/verify-bundle.sh`.
 
 See the [design](docs/design.md) and [implementation record](docs/implementation-plan.md) for architecture and qualified hardware behavior. Machine-specific logs, device inventories, and acceptance transcripts are local-only and excluded from Git. Simulated lifecycle tests do not replace real sleep acceptance.
 
-The backend revision, provenance, and license are documented in [ThirdParty/m1ddc/UPSTREAM.md](ThirdParty/m1ddc/UPSTREAM.md). The repository is `~/dev/portkey`, on `main`. Delivery is local; the user handles pushing to GitHub.
+The backend revision, provenance, and license are documented in [ThirdParty/m1ddc/UPSTREAM.md](ThirdParty/m1ddc/UPSTREAM.md).
