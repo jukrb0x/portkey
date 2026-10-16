@@ -2,6 +2,8 @@
 
 **Switch your USB. Let your display follow.**
 
+![Portkey: the same shared display follows USB ownership between Mac over HDMI and Windows over DisplayPort.](docs/images/portkey-hero.svg)
+
 One monitor, two computers, one keyboard and mouse. Portkey connects the missing piece: press your USB switch, and the monitor follows your peripherals to the right computer. No reaching behind the display or navigating its input menu.
 
 Portkey lives in the macOS menu bar and uses DDC to select the monitor input. Everything runs on the Mac; Windows needs no software.
@@ -15,6 +17,12 @@ Portkey lives in the macOS menu bar and uses DDC to select the monitor input. Ev
 This first version is built and tested for a specific desk setup: an Apple Silicon Mac connected by HDMI, a Windows PC connected by DisplayPort, a Philips 27M2N5800, and a UGREEN USB switch with shared USB2/USB3 hubs. Both computers must be awake. The default configuration retains that setup's monitor and hub enrollment; check **Settings / Rebind…** before using it elsewhere.
 
 Broader hardware support and a guided first-run setup are future work. Sleep/wake recovery can take time while macOS and the display become ready. See [Enrollment and recovery](#enrollment-and-recovery) for the current behavior and limits.
+
+## How it connects
+
+Each computer has its own video connection to the shared monitor and a USB connection to the switch. Press the hardware USB switch; Portkey observes the shared hubs on the Mac and requests the matching monitor input. DDC control travels over the Mac's existing HDMI connection.
+
+![Connection diagram: Mac via HDMI, Windows via DisplayPort, and both hosts connected to the USB switch carrying the shared keyboard and mouse. Portkey sends DDC commands from the Mac.](docs/images/connection-diagram.svg)
 
 ## Build and run
 
