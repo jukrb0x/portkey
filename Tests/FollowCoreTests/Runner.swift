@@ -16,6 +16,12 @@ import Foundation
         await s.testConfirmedDoesNotRetryOrRepeatIdenticalRequest()
         await s.testOldInflightWriteGetsFinalCorrectionWithoutConcurrency()
         await s.testPauseCancelsRetryAndIgnoresStaleResult()
+        let a = AdapterTests()
+        try await a.testBackendTargetsOnlyEnrolledUUIDAndRejectsUnknownReadback()
+        await a.testMonitorSettlesBeforeReadbackWithoutRepeatedWrites()
+        await a.testTransportFailureNeverRunsReadback()
+        try a.testConfigurationPersistsAtomicallyAndInvalidSavePreservesPrevious()
+        await a.testRealProcessHandlesFullPipesFailureDeadlineAndCancellation()
         print("\(checks) checks, \(failures) failures")
         if failures > 0 { exit(1) }
     }
