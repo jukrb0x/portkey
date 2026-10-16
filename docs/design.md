@@ -2,11 +2,11 @@
 
 ## Scope and evidence
 
-This document records the native menu-bar product design. The [implementation brief](IMPLEMENTATION-BRIEF.md) records current scope, and the [implementation record](implementation-plan.md) tracks delivery. Read the measured [DDC findings](../diagnostics/ddc-findings.md), [USB findings](../diagnostics/usb-switch-findings.md), and [app acceptance](../diagnostics/app-acceptance.md) for qualified hardware behavior and pending cases.
+This document records the native menu-bar product design. The [implementation brief](IMPLEMENTATION-BRIEF.md) records current scope, and the [implementation record](implementation-plan.md) tracks delivery. Machine-specific diagnostic records are excluded from Git; qualified behavior and pending cases are summarized below.
 
 ## Outcome
 
-A native, unobtrusive menu-bar app keeps a Philips 27M2N5800 input aligned with a physical UGREEN four-port/two-host USB switch. Both computers awake is the initial supported workflow. One Mac process controls the screen; no Windows install or network service is required. The Mac must be awake. The existing project root is /Users/jabriel/dev/portkey, branch main, isolated from dotfiles.
+A native, unobtrusive menu-bar app keeps a Philips 27M2N5800 input aligned with a physical UGREEN four-port/two-host USB switch. Both computers awake is the initial supported workflow. One Mac process controls the screen; no Windows install or network service is required. The Mac must be awake. The existing project root is ~/dev/portkey, branch main, isolated from dotfiles.
 
 ## Architecture
 
@@ -18,9 +18,9 @@ A native, unobtrusive menu-bar app keeps a Philips 27M2N5800 input aligned with 
 
 ## Enrollment and input mapping
 
-Use the currently tested Philips UUID 8EBDEBE8-EAF7-4084-8064-0B59A5E48919; HDMI1=17, DisplayPort=15. Preserve a way to select/re-enroll if monitor identification changes; never target a different display silently.
+Use the explicitly enrolled Philips UUID; HDMI1=17, DisplayPort=15. Preserve a way to select/re-enroll if monitor identification changes; never target a different display silently.
 
-Enrolled shared USB2 hub: VID 0x05e3 PID 0x0610 location 0x02121000, parent same VID/PID at 0x02120000. Shared USB3 hub: VID 0x05e3 PID 0x0626 location 0x02210000, parent same VID/PID at 0x02200000. The parent hubs stay present when switching. Duplicate VID/PIDs exist upstream, so include topology in identity. Runtime registry IDs are not persistent. A port/dock change must show enrollment needed rather than guess.
+Enroll both shared USB2/USB3 branches and their parent topology from the local inventory. The parent hubs stay present when switching. Duplicate VID/PIDs exist upstream, so include topology in identity. Runtime registry IDs are not persistent. A port/dock change must show enrollment needed rather than guess.
 
 Both branches present => locally owned; settle for 300ms then HDMI1. Both absent after prior ownership => departure; settle for 700ms then DP. One branch missing => partial/unknown: issue no new action and cancel queued stale work. Preserve prior ownership history across a short partial transition so both-absent can be recognized; sleep/startup clears ownership. Peripheral-only changes never alter the hub state. USB3 and USB2 returned 600ms apart during the observed trial.
 
@@ -50,7 +50,7 @@ Hardware acceptance records only observed trials. The user confirmed one full ph
 
 Startup or real wake with USB already switched away and monitor power-cycle behavior remain unqualified physical cases. Synthetic lifecycle checks are deterministic/integration evidence, not proof of actual sleep recovery. Any further physical switch or sleep tests require coordination with the user.
 
-The release bundle, helper, deployment targets, plist, license, and ad-hoc signatures have recorded verification. The acceptance record distinguishes tests, transport/readback results, and user-visible picture confirmation. Delivery remains local in `/Users/jabriel/dev/portkey` on `main`; the user pushes to GitHub themselves.
+The release bundle, helper, deployment targets, plist, license, and ad-hoc signatures have recorded verification. The acceptance record distinguishes tests, transport/readback results, and user-visible picture confirmation. Delivery remains local in `~/dev/portkey` on `main`; the user pushes to GitHub themselves.
 
 ## Known limits
 

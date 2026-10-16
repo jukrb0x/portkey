@@ -6,15 +6,15 @@ Current design: [design.md](design.md)
 
 Implementation record: [implementation-plan.md](implementation-plan.md)
 
-Acceptance evidence: [app-acceptance.md](../diagnostics/app-acceptance.md)
+Machine-specific acceptance records remain local and are excluded from Git.
 
 ## Product name
 
-The user requested a new name inspired by Harry Potter, Minecraft, London Underground or Sherlock. The selected product/project name is **Portkey** (Harry Potter’s transportation object, with a USB port association). Swift package, executable, bundle display name, menu and current build instructions use Portkey. Keep the existing `local.usbfollowdisplay.app` bundle identifier and Application Support/Logs paths to preserve local settings and enrollment. The user explicitly requested relocating the checkout to `/Users/jabriel/dev/portkey`. All commands must now use this directory. Codex saved-project metadata may need to be reselected through its supported UI; do not edit private Codex state.
+The user requested a new name inspired by Harry Potter, Minecraft, London Underground or Sherlock. The selected product/project name is **Portkey** (Harry Potter’s transportation object, with a USB port association). Swift package, executable, bundle display name, menu and current build instructions use Portkey. Keep the existing `local.usbfollowdisplay.app` bundle identifier and Application Support/Logs paths to preserve local settings and enrollment. The user explicitly requested relocating the checkout to `~/dev/portkey`. All commands must now use this directory. Codex saved-project metadata may need to be reselected through its supported UI; do not edit private Codex state.
 
 ## Working context
 
-Repository: /Users/jabriel/dev/portkey
+Repository: ~/dev/portkey
 Delivery branch: main
 The repository is separate from the user's chezmoi dotfiles.
 
@@ -32,15 +32,9 @@ Manual input selection must not be instantly undone by a stale automatic action.
 
 Mac M5 Pro, direct built-in HDMI to Philips 27M2N5800; Windows connected via DP. External display currently works at scaled 2560x1440 / 144Hz. The 5120x2880 system rendering framebuffer does not make the physical panel 5K.
 
-Philips system UUID: 8EBDEBE8-EAF7-4084-8064-0B59A5E48919
-EDID UUID: 410C98C3-0000-0000-1824-0103803C2278
-Input values: HDMI1=17; DisplayPort=15.
-Qualified helper revision: 04d949794102eb8df01ad3681afff6464a3eede2
+Input values: HDMI1=17; DisplayPort=15. Qualified helper revision: 04d949794102eb8df01ad3681afff6464a3eede2.
 
-A real test read current DP=15 with Windows awake, sent HDMI1=17 FROM THE MAC WHILE DP WAS SELECTED, then read 17 twice. User confirmed the external screen returned to Mac. Thus inactive-HDMI reclamation works in this cabling. No other DDC app needs installation.
-
-Source is in ThirdParty/m1ddc. Example command after building:
-`m1ddc --verbose display 8EBDEBE8-EAF7-4084-8064-0B59A5E48919 set input 17`
+A real trial with Windows awake confirmed that the Mac can reclaim HDMI1 while DP is selected. This qualifies the tested cabling only. Use the explicitly enrolled monitor UUID for every write; local identifiers and raw probe output are kept outside Git.
 
 The upstream parser does not validate a full VCP response and returned 0 during transitions. Do not treat exit 0 or input 0 as verified switching. Add proper reply validation if touching that code, with a focused regression test; otherwise treat non-enrolled values as inconclusive. Keep selection/write success separate from visually verified hardware acceptance.
 
@@ -48,9 +42,7 @@ The upstream parser does not validate a full VCP response and returned 0 during 
 
 Switch: UGREEN USB 3.0, four peripheral ports / two host terminals. Exact product SKU unknown and unnecessary for current topology enrollment.
 
-- Shared USB3 branch: VID/PID 05e3:0626, location 0x02210000, parent 05e3:0626 at 0x02200000.
-- Shared USB2 branch: VID/PID 05e3:0610, location 0x02121000, parent 05e3:0610 at 0x02120000.
-- HHKB 04fe:0021, Logitech receiver 046d:c52b and Keychron receiver 3434:d026 are children of the shared USB2 branch.
+The shared USB2/USB3 pair and its parent topology were enrolled from the local inventory. A keyboard and two receivers were attached beneath the shared USB2 branch. Exact local identifiers belong in the saved configuration, not public diagnostic records.
 
 One switch round trip removed/restored both shared branches and all three peripherals. Unplugging HHKB alone removed only HHKB: both shared hubs and receivers stayed present. Upstream hub with the same VID/PID stays connected, so model-only matching is wrong. Runtime registry IDs changed after reconnect and cannot be saved as stable identity. USB3/USB2 branches came back about 600ms apart in that sample.
 

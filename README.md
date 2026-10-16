@@ -9,7 +9,7 @@ This native macOS menu-bar app follows an enrolled pair of shared USB2/USB3 hubs
 Requires an Apple Silicon Mac, macOS 13 or later, and Apple Command Line Tools (`xcode-select --install`). There are no third-party Swift dependencies or administrator background services.
 
 ```sh
-cd /Users/jabriel/dev/portkey
+cd ~/dev/portkey
 ./scripts/test.sh
 ./scripts/build-app.sh
 open 'dist/Portkey.app'
@@ -51,6 +51,6 @@ To uninstall, quit and delete the app. You can also remove the configuration/log
 
 `./scripts/test.sh` runs deterministic Swift policy, scheduling, real-process timeout/output, and configuration checks without DDC writes. This machine has Command Line Tools without XCTest/Swift Testing, so the suite uses a SwiftPM executable assertion runner; `swift test` is unavailable here. Build verification is available through `./scripts/verify-bundle.sh`.
 
-See [app acceptance](diagnostics/app-acceptance.md) for observed hardware results and pending cases, [DDC findings](diagnostics/ddc-findings.md) and [USB findings](diagnostics/usb-switch-findings.md) for the original measurements, and [design](docs/design.md) and [implementation record](docs/implementation-plan.md) for the product architecture. Simulated lifecycle tests do not replace real sleep acceptance.
+See the [design](docs/design.md) and [implementation record](docs/implementation-plan.md) for architecture and qualified hardware behavior. Machine-specific logs, device inventories, and acceptance transcripts are local-only and excluded from Git. Simulated lifecycle tests do not replace real sleep acceptance.
 
-The backend revision, provenance, and license are documented in [ThirdParty/m1ddc/UPSTREAM.md](ThirdParty/m1ddc/UPSTREAM.md). The repository is `/Users/jabriel/dev/portkey`, on `main`. Delivery is local; the user handles pushing to GitHub.
+The backend revision, provenance, and license are documented in [ThirdParty/m1ddc/UPSTREAM.md](ThirdParty/m1ddc/UPSTREAM.md). The repository is `~/dev/portkey`, on `main`. Delivery is local; the user handles pushing to GitHub.

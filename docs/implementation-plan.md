@@ -50,7 +50,7 @@ This record preserves the implemented plan and the limits of its acceptance evid
 
 ### Task 3: Hardware acceptance, sleep recovery and final delivery
 
-**Files:** diagnostics/app-acceptance.md; README.md; fixes in corresponding source/tests.
+**Files:** README.md; fixes in corresponding source/tests. Machine-specific acceptance notes remain local and are excluded from Git.
 **Interfaces:** The running packaged app uses real USB and monitor hardware. The test record separates deterministic tests, dry-run/integration observations and user-confirmed physical results.
 
 - [x] Coordinate physical USB switching with the user and record the observed subset. Record rapid-reversal evidence separately from visually confirmed round trips; do not infer extra confirmations from log events.
@@ -62,10 +62,16 @@ This record preserves the implemented plan and the limits of its acceptance evid
 
 ## Native delivery evidence
 
-Tasks 1/2 implemented and committed; independent review findings fixed with regressions. Installed Command Line Tools lacks XCTest/Testing: `scripts/test.sh` runs the dependency-free SwiftPM executable test runner (75 assertions). `scripts/verify-bundle.sh` validates actual deployment targets, license and signature. The user declined 20 repeated physical cycles and confirmed several ad hoc switches plus HHKB-only unplug/replug; the observed subset is recorded in [app acceptance](../diagnostics/app-acceptance.md). Four coordinated real sleep trials recorded; eventual automatic external recovery confirmed with Windows awake while Mac remains locked. Recovery has an observed delay, not an immediate-response claim. Optional physical wake-with-USB-away and monitor power-cycle cases remain unqualified.
+Tasks 1/2 implemented and committed; independent review findings fixed with regressions. Installed Command Line Tools lacks XCTest/Testing: `scripts/test.sh` runs the dependency-free SwiftPM executable test runner (75 assertions). `scripts/verify-bundle.sh` validates actual deployment targets, license and signature. The user declined 20 repeated physical cycles and confirmed several ad hoc switches plus HHKB-only unplug/replug; the observed subset is summarized in the design, while raw acceptance records remain local. Four coordinated real sleep trials recorded; eventual automatic external recovery confirmed with Windows awake while Mac remains locked. Recovery has an observed delay, not an immediate-response claim. Optional physical wake-with-USB-away and monitor power-cycle cases remain unqualified.
 
 ## Product name, repository, and language support
 
-The product, Swift package/target, executable, and app bundle are named Portkey. The checkout is `/Users/jabriel/dev/portkey`, and the delivery branch is `main`. The user handles pushing to GitHub. Keep `local.usbfollowdisplay.app`, `~/Library/Application Support/USBFollowDisplay`, and `~/Library/Logs/USBFollowDisplay` for compatibility.
+The product, Swift package/target, executable, and app bundle are named Portkey. The checkout is `~/dev/portkey`, and the delivery branch is `main`. The user handles pushing to GitHub. Keep `local.usbfollowdisplay.app`, `~/Library/Application Support/USBFollowDisplay`, and `~/Library/Logs/USBFollowDisplay` for compatibility.
 
 The current language requirement is English by default with a persistent English / Chinese (Simplified) submenu. Selecting a language immediately updates the menu, settings, and current status without restarting. App-owned controls and messages use the selected language, while hardware/backend errors may retain original detail. Language verification belongs to the current change's tests and actual app inspection; the historical 75-check result above predates this addition.
+
+## English and bilingual interface verification
+
+The updated deterministic suite passed 262 checks with no failures. The release build and bundle verification passed, including both localization resources, deployment targets, retained helper license, and ad-hoc signatures. Actual app inspection verified immediate English/Chinese switching, saved language after restart, and preservation of unsaved settings edits. Language changes did not issue display commands. No additional physical switching or sleep trials were performed for this change.
+
+Machine-specific diagnostic captures and workflow folders are excluded from Git, including historical trees. Local recovery copies are ignored.

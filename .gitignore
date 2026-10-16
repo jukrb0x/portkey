@@ -9,3 +9,6 @@ ThirdParty/m1ddc/library/
 xcuserdata/
 superpowers/
 work/
+
+# Machine-specific captures stay local.
+[Dd]iagnostics/
