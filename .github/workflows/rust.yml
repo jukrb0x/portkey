@@ -1,26 +1,55 @@
-name: Rust
-on: [push, pull_request]
+name: Native validation
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_call:
+permissions:
+  contents: read
 jobs:
-  test:
+  native:
     strategy:
+      fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        include:
+          - os: macos-15
+            platform: macos-arm64
+          - os: windows-2025
+            platform: windows-x64
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate release metadata
+        run: python scripts/release-package.py
       - run: cargo fmt --check
       - run: cargo test --locked
       - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: python scripts/test-release-package.py
+      - run: python scripts/test-analyze-timing.py
       - if: runner.os == 'macOS'
-        run: scripts/test-ddc.sh
-      - if: runner.os == 'macOS'
-        run: scripts/build-rust-app.sh
+        name: Build and verify Apple Silicon native app
+        run: |
+          test "$(uname -m)" = arm64
+          scripts/test-ddc.sh
+          scripts/test-mac-presentation.sh
+          scripts/build-rust-app.sh
+          scripts/test-mac-state.sh
       - if: runner.os == 'Windows'
-        run: ./scripts/build-windows.ps1
+        name: Build and verify Windows x64 native package
+        run: ./scripts/build-windows.ps1 -SkipArchive
+      - name: Package native app and checksum
+        run: python scripts/release-package.py --platform ${{ matrix.platform }}
       - uses: actions/upload-artifact@v4
         with:
-          name: PortKey-${{ runner.os }}
-          path: dist/
+          name: PortKey-${{ matrix.platform }}
+          path: dist/release/*
+          if-no-files-found: error

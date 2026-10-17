@@ -1,0 +1,61 @@
+name: Draft release candidate
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag (must match checked-in version)
+        required: true
+        default: v1.0.0-rc.1
+  push:
+    tags: ['v*-rc.*']
+permissions:
+  contents: read
+concurrency:
+  group: draft-release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Validate tag and checked-out commit
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          python3 scripts/release-package.py --tag "$RELEASE_TAG"
+          test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$(git rev-parse HEAD)"
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+  build:
+    needs: validate
+    uses: ./.github/workflows/rust.yml
+    permissions:
+      contents: read
+  draft:
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: PortKey-*
+          path: release
+          merge-multiple: true
+      - name: Create draft prerelease only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          cd release
+          sha256sum --check *.sha256
+          gh release create "$RELEASE_TAG" ./*.zip ./*.sha256 --verify-tag --draft --prerelease --title "PortKey $RELEASE_TAG" --notes-file "../docs/releases/$RELEASE_TAG.md"
