@@ -105,7 +105,7 @@ static void printDisplayInfos(DisplayInfos *display, int nbDisplays, bool detail
 static DDCValue readingOperation(DDCTransport *transport, DDCPacket *packet) {
     DDCValue dummyAttr = {-1, -1};
 
-    prepareDDCRead(packet->data);
+    prepareDDCRead(packet);
 
     IOReturn err = performDDCWriteAtChipAddress(transport->service, transport->chipAddress, packet);
     if (err) {
@@ -122,7 +122,15 @@ static DDCValue readingOperation(DDCTransport *transport, DDCPacket *packet) {
         return dummyAttr;
     }
 
-    return convertI2CtoDDC((char *)readPacket.data);
+    DDCValue value = convertI2CtoDDC(readPacket.data, 12, packet->data[2]);
+    if (value.curValue == -1) {
+        if (readPacket.data[0] == 0x6e && readPacket.data[1] == 0x80 && readPacket.data[2] == 0xbe) {
+            writeToStdOut(@"DDC/CI null reply: monitor did not supply the requested VCP value\n");
+        } else {
+            writeToStdOut(@"Invalid or unsupported DDC/CI reply; value not confirmed\n");
+        }
+    }
+    return value;
 }
 
 // Function to handle the writing operation (set, chg)

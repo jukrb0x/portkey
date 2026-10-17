@@ -357,6 +357,9 @@ impl Policy {
     pub fn ownership(&self) -> Ownership {
         self.ownership
     }
+    pub(crate) fn has_established_ownership(&self) -> bool {
+        self.established
+    }
     pub fn automatic(&self) -> bool {
         self.automatic
     }

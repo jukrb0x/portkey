@@ -15,6 +15,8 @@ jobs:
       - run: cargo test --locked
       - run: cargo clippy --locked --all-targets -- -D warnings
       - if: runner.os == 'macOS'
+        run: scripts/test-ddc.sh
+      - if: runner.os == 'macOS'
         run: scripts/build-rust-app.sh
       - if: runner.os == 'Windows'
         run: ./scripts/build-windows.ps1

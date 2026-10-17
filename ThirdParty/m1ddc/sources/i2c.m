@@ -23,10 +23,11 @@ DDCPacket createDDCPacket(UInt8 attrCode) {
 }
 
 // Prepare DDC packet for read
-void prepareDDCRead(UInt8* data) {
+void prepareDDCRead(DDCPacket *packet) {
+    UInt8 *data = packet->data;
     data[0] = 0x82;
     data[1] = 0x01;
-    data[3] = 0x6e ^ data[0] ^ data[1] ^ data[2] ^ data[3];
+    data[3] = 0x6e ^ packet->inputAddr ^ data[0] ^ data[1] ^ data[2];
 }
 
 // Prepare DDC packet for write
@@ -67,20 +68,19 @@ IOReturn performDDCWrite(IOAVServiceRef avService, DDCPacket *packet) {
 }
 
 
-DDCValue convertI2CtoDDC(char *i2cBytes) {
-    DDCValue displayAttr = {};
-    NSData *i2cData = [NSData dataWithBytes:(const void *)i2cBytes length:(NSUInteger)11];
-    // DDC/CI "Get VCP Feature Reply": maximum value is in bytes [6..7] and the
-    // current value in bytes [8..9], both big-endian.
-    NSRange maxValueRange = {6, 2};
-    uint16_t maxValue = 0;
-    [[i2cData subdataWithRange:maxValueRange] getBytes:&maxValue length:sizeof(2)];
-    displayAttr.maxValue = CFSwapInt16BigToHost(maxValue);
-
-    NSRange curValueRange = {8, 2};
-    uint16_t curValue = 0;
-    [[i2cData subdataWithRange:curValueRange] getBytes:&curValue length:sizeof(2)];
-    displayAttr.curValue = CFSwapInt16BigToHost(curValue);
-
-    return displayAttr;
+DDCValue convertI2CtoDDC(const UInt8 *bytes, size_t length, UInt8 expectedCode) {
+    const DDCValue invalid = {-1, -1};
+    // Full Get VCP reply is 11 bytes; IOAV requests 12 and may append padding.
+    if (bytes == NULL || length < 11 || bytes[0] != 0x6e || bytes[1] != 0x88 ||
+        bytes[2] != 0x02 || bytes[3] != 0x00 || bytes[4] != expectedCode || bytes[5] > 1) {
+        return invalid;
+    }
+    UInt8 checksum = 0x50;
+    for (size_t i = 0; i < 11; i++) checksum ^= bytes[i];
+    if (checksum != 0) return invalid;
+    DDCValue value = {
+        .curValue = ((unsigned int)bytes[8] << 8) | bytes[9],
+        .maxValue = ((unsigned int)bytes[6] << 8) | bytes[7],
+    };
+    return value;
 }

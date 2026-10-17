@@ -51,7 +51,7 @@ The script also creates `dist/PortKey-Windows.zip`. No elevated application priv
 4. Set each host's VCP input value. Common values are DisplayPort `15`/`16` and HDMI `17`/`18`; check your display's documentation. Save the enrollment.
 5. Use the manual buttons to test each direction while watching the display. Only then enable automatic switching.
 
-A command being sent, a monitor reporting its input and a visible picture change are different evidence. The pinned Mac helper does not fully validate DDC replies, so the Rust app reports Mac writes as **sent, unverified**. Windows readback confirmation is still not proof of the visible picture.
+A command being sent, a monitor reporting its input and a visible picture change are different evidence. The Mac helper validates Get-VCP replies and rejects null/malformed replies. Set-VCP transport success still provides no readback or visual confirmation, so the Rust app reports Mac writes as **sent, unverified**. Windows readback confirmation is still not proof of the visible picture.
 
 Use the tray/menu-bar menu to open settings, pause or select a host. Closing the settings window keeps the controller in the tray; choose **Quit PortKey** to exit. Startup failures are reported rather than leaving a hidden controller without accessible controls.
 

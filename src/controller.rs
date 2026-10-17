@@ -489,14 +489,31 @@ impl Controller {
             .inventory
             .as_ref()
             .map(|i| json!({"displays":i.displays,"hubs":i.hubs}));
-        let status = self.startup_error.as_ref().unwrap_or(&self.status);
+        let mut status = self.startup_error.as_ref().unwrap_or(&self.status).clone();
+        if self.startup_error.is_none()
+            && !self.editing
+            && self.lifecycle_ok
+            && !(self.lifecycle)().1
+            && self.policy.automatic()
+            && self.policy.ownership() == Ownership::Absent
+            && !self.policy.has_established_ownership()
+        {
+            let waiting = self.text(
+                "Automation is waiting to observe both enrolled USB hubs on this computer. Startup absence does not switch the display.",
+                "自动切换正在等待本机检测到两个已配置的 USB 集线器。启动时设备缺失不会触发切换。",
+            );
+            if !status.is_empty() {
+                status.push(' ');
+            }
+            status.push_str(waiting);
+        }
         json!({
             "config": self.config, "inventory": inventory,
             "profiles": self.profiles.profiles.iter().map(|p| json!({"name":p.name,"display_id":p.config.display_id})).collect::<Vec<_>>(),
             "active_display_id": if self.editing { None } else { self.config.as_ref().map(|c| &c.display_id) },
             "profile_name": self.profile_name(),
             "ownership": match self.policy.ownership() { Ownership::Unknown => "unknown", Ownership::Owned => "owned", Ownership::Absent => "absent", Ownership::Partial => "partial" },
-            "status": crate::messages::display(status, self.language == "zh-Hans"),
+            "status": crate::messages::display(&status, self.language == "zh-Hans"),
             "error": self.error || self.startup_error.is_some(),
             "lifecycle_ok": self.lifecycle_ok, "sleeping": (self.lifecycle)().1,
             "language": self.language, "config_path": self.path.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
@@ -1173,5 +1190,68 @@ mod tests {
         assert_eq!(saved.profiles[0].name, "Home");
         assert_eq!(saved.profiles[1].name, "Work");
         std::fs::remove_dir_all(directory).unwrap();
+    }
+    #[test]
+    fn saved_automatic_profile_dispatches_owned_then_absent() {
+        let mut profiles = two_desks().profiles;
+        profiles.profiles[0].config.automatic = true;
+        let mut c = Controller::from_store(Err("no persistence".into()), Ok(profiles));
+        c.lifecycle_ok = true;
+        c.lifecycle = || (0, false);
+        c.lifecycle_epoch = 0;
+        discover(&mut c, &[0], true);
+        assert!(c.policy.automatic());
+        assert_eq!(c.policy.ownership(), Ownership::Owned);
+        c.started -= Duration::from_secs(1);
+        c.snapshot();
+        let (_, local) = c
+            .worker
+            .shared
+            .0
+            .lock()
+            .unwrap()
+            .jobs
+            .take()
+            .expect("owned must dispatch");
+        assert_eq!(local.target, Target::Local);
+        discover(&mut c, &[0], false);
+        c.started -= Duration::from_secs(1);
+        c.snapshot();
+        let (_, remote) = c
+            .worker
+            .shared
+            .0
+            .lock()
+            .unwrap()
+            .jobs
+            .take()
+            .expect("established departure must dispatch");
+        assert_eq!(remote.target, Target::Remote);
+    }
+
+    #[test]
+    fn startup_absent_explains_wait_without_hiding_transport_result() {
+        let mut c = two_desks();
+        c.config = None;
+        c.profiles.profiles[0].config.automatic = true;
+        discover(&mut c, &[0], false);
+        assert!(c.snapshot()["status"]
+            .as_str()
+            .unwrap()
+            .contains("both enrolled USB hubs"));
+        c.status = "Command sent; visual switching is unverified.".into();
+        let status = c.snapshot()["status"].as_str().unwrap().to_owned();
+        assert!(status.contains("Command sent"));
+        assert!(status.contains("both enrolled USB hubs"));
+        assert!(c.worker.shared.0.lock().unwrap().jobs.take().is_none());
+        discover(&mut c, &[0], true);
+        c.started -= Duration::from_secs(1);
+        c.snapshot();
+        c.worker.shared.0.lock().unwrap().jobs.take();
+        discover(&mut c, &[0], false);
+        assert!(!c.snapshot()["status"]
+            .as_str()
+            .unwrap()
+            .contains("both enrolled USB hubs"));
     }
 }

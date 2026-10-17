@@ -72,6 +72,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     var selectedHub2: Device?
     var menuState = ""
     var mainMenuLanguage = ""
+    var operationStatus = ""
 
     func text(_ en: String, _ zh: String) -> String { language == "zh-Hans" ? zh : en }
     func decode<T: Decodable>(_ pointer: UnsafeMutablePointer<CChar>?, as type: T.Type) throws -> T {
@@ -109,7 +110,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         NSApp.setActivationPolicy(.accessory)
         makeWindow()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "PortKey"
+        statusItem.isVisible = true
+        statusItem.button?.imagePosition = .imageOnly
+        statusItem.button?.title = ""
         handle = pk_create()
         guard handle != nil else { failBridge(BridgeError.unavailable); openSettings(); return }
         tick()
@@ -185,8 +188,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         add(row([title, NSView(), languagePicker]))
         ownership.font = .boldSystemFont(ofSize: 14); add(ownership); add(profileStatus); add(status)
         automatic.target = self; automatic.action = #selector(toggleAutomation); add(automatic)
-        localButton = button("Use this computer", "切换到本机", #selector(useLocal))
-        remoteButton = button("Use other computer", "切换到另一台电脑", #selector(useRemote))
+        localButton = button("Switch to Mac", "切换到 Mac", #selector(useLocal))
+        remoteButton = button("Switch to Windows", "切换到 Windows", #selector(useRemote))
         add(row([localButton, remoteButton]))
         add(NSBox.separator())
         add(instructions)
@@ -197,9 +200,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         add(inputHelp)
         localInput.widthAnchor.constraint(equalToConstant: 65).isActive = true
         remoteInput.widthAnchor.constraint(equalToConstant: 65).isActive = true
-        add(row([label("This input", "本机输入值"), localInput, label("Other input", "另一台输入值"), remoteInput]))
-        localInput.setAccessibilityLabel("This computer VCP input / 本机 VCP 输入值")
-        remoteInput.setAccessibilityLabel("Other computer VCP input / 另一台 VCP 输入值")
+        add(row([label("Mac input", "Mac 输入值"), localInput, label("Windows input", "Windows 输入值"), remoteInput]))
+        localInput.setAccessibilityLabel("Mac VCP input / Mac VCP 输入值")
+        remoteInput.setAccessibilityLabel("Windows VCP input / Windows VCP 输入值")
         saveButton = button("Save enrollment", "保存设备配置", #selector(save))
         cancelButton = button("Cancel editing", "取消编辑", #selector(cancel))
         editButton = button("Edit setup", "修改配置", #selector(edit))
@@ -266,12 +269,37 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         newButton.isEnabled = healthy && !editing
         importButton.isEnabled = healthy && editing
         localButton.isEnabled = canSwitch; remoteButton.isEnabled = canSwitch
-        let states = ["owned": text("USB connected to this computer", "USB 已连接本机"), "absent": text("Enrolled USB hubs are absent", "已配置的 USB 集线器均不在本机"), "partial": text("Only one hub detected · waiting", "只检测到一个集线器 · 等待稳定"), "unknown": text("Waiting for reliable USB evidence", "等待可靠的 USB 状态")]
+        let states = ["owned": text("USB connected to Mac", "USB 已连接 Mac"), "absent": text("Enrolled USB hubs are absent", "已配置的 USB 集线器均未连接 Mac"), "partial": text("Only one hub detected · waiting", "只检测到一个集线器 · 等待稳定"), "unknown": text("Waiting for reliable USB evidence", "等待可靠的 USB 状态")]
         ownership.stringValue = states[snapshot?.ownership ?? "unknown"] ?? states["unknown"]!
-        status.stringValue = bridgeFailure ?? snapshot?.status ?? ""
-        status.textColor = (bridgeFailure != nil || snapshot?.error == true) ? .systemRed : .secondaryLabelColor
+        let failed = bridgeFailure != nil || snapshot?.error == true
+        if !healthy || snapshot?.lifecycle_ok == false {
+            operationStatus = text("Switching unavailable", "切换不可用")
+        } else if snapshot?.sleeping == true {
+            operationStatus = text("Sleeping · switching paused", "休眠中 · 切换已暂停")
+        } else if editing {
+            operationStatus = text("Editing setup · switching paused", "正在编辑配置 · 切换已暂停")
+        } else if snapshot?.config == nil {
+            operationStatus = text("No matching setup · switching paused", "没有匹配的配置 · 切换已暂停")
+        } else {
+            operationStatus = automatic.state == .on ? text("Automatic switching enabled", "自动切换已启用") : text("Automatic switching paused", "自动切换已暂停")
+        }
+        let detail = bridgeFailure ?? snapshot?.status ?? ""
+        status.stringValue = detail.isEmpty || detail == operationStatus ? operationStatus : operationStatus + "\n" + detail
+        status.textColor = failed ? .systemRed : .secondaryLabelColor
+        updateStatusItem(failed: failed, switching: canSwitch && automatic.state == .on)
         updateMainMenu()
         updateMenu(canSwitch: canSwitch)
+    }
+    func updateStatusItem(failed: Bool, switching: Bool) {
+        guard let button = statusItem?.button else { return }
+        button.title = ""
+        let ownershipSymbols = ["owned": "laptopcomputer", "absent": "desktopcomputer"]
+        let symbol = failed ? "exclamationmark.triangle" : (!switching ? "pause.circle" : (ownershipSymbols[snapshot?.ownership ?? "unknown"] ?? "questionmark.circle"))
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "PortKey")
+        image?.isTemplate = true; button.image = image
+        let evidence = text("USB ownership does not confirm the monitor input or picture. The desktop icon means both enrolled USB hubs are absent from Mac; it does not confirm Windows is awake.", "USB 归属不代表已确认显示器输入或画面。台式机图标表示两个已配置 USB 集线器均未连接 Mac，不代表 Windows 已唤醒。")
+        button.toolTip = "PortKey\n" + ownership.stringValue + "\n" + status.stringValue + "\n" + evidence
+        button.setAccessibilityLabel("PortKey, " + ownership.stringValue + ", " + status.stringValue)
     }
     func updateMainMenu() {
         guard mainMenuLanguage != language else { return }
@@ -300,18 +328,27 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
     func updateMenu(canSwitch: Bool) {
         guard statusItem != nil else { return }
-        let state = "\(language)|\(ownership.stringValue)|\(canSwitch)|\(automatic.state.rawValue)"
+        let state = "\(language)|\(ownership.stringValue)|\(canSwitch)|\(automatic.state.rawValue)|\(status.stringValue)"
         guard state != menuState else { return }
         menuState = state
         let menu = NSMenu(); menu.autoenablesItems = false
         func item(_ title: String, _ selector: Selector?, enabled: Bool = true) -> NSMenuItem {
             let i = NSMenuItem(title: title, action: selector, keyEquivalent: ""); i.target = self; i.isEnabled = enabled; menu.addItem(i); return i
         }
+        _ = item("PortKey", nil, enabled: false)
         _ = item(ownership.stringValue, nil, enabled: false)
+        _ = item(operationStatus, nil, enabled: false)
+        let detail = bridgeFailure ?? snapshot?.status ?? ""
+        if !detail.isEmpty && detail != operationStatus {
+            let line = item(String(detail.prefix(100)) + (detail.count > 100 ? "…" : ""), nil, enabled: false)
+            line.toolTip = detail
+        }
+        _ = item(text("USB state does not confirm monitor input", "USB 状态不代表显示器输入已确认"), nil, enabled: false)
+        menu.addItem(.separator())
         _ = item(text("Settings…", "设置…"), #selector(openSettings))
         menu.addItem(.separator())
-        _ = item(text("Use this computer", "切换到本机"), #selector(useLocal), enabled: canSwitch)
-        _ = item(text("Use other computer", "切换到另一台电脑"), #selector(useRemote), enabled: canSwitch)
+        _ = item(text("Switch to Mac", "切换到 Mac"), #selector(useLocal), enabled: canSwitch)
+        _ = item(text("Switch to Windows", "切换到 Windows"), #selector(useRemote), enabled: canSwitch)
         let toggle = item(text("Automatic switching", "自动切换"), #selector(toggleAutomation), enabled: canSwitch)
         toggle.state = automatic.state
         menu.addItem(.separator())
@@ -324,6 +361,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         lang.submenu = submenu
         _ = item(text("Quit PortKey", "退出 PortKey"), #selector(quit))
         statusItem.menu = menu
+    }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        openSettings()
+        return true
     }
     @objc func openSettings() { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
     func windowShouldClose(_ sender: NSWindow) -> Bool { sender.orderOut(nil); return false }

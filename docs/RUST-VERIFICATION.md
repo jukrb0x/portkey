@@ -1,3 +1,12 @@
+# Switching investigation and menu status — 2026-10-17
+
+- User reported no visible input switch on the new display. Home automation was enabled and the UI observed both enrolled USB hubs absent; a manual request showed sent/unverified. Actual switching remains unresolved.
+- Deterministic saved automatic profile owned→settled→absent test passes. No policy dispatch defect was reproduced. Added explicit waiting text when startup/resume absence has not established local ownership, retaining command feedback.
+- Raw exact-display Get probes returned a valid null frame (`6e 80 be`), not a VCP value. The old parser read trailing bytes as an arbitrary number. Corrected Get checksum and added strict response validation; helper now exits nonzero on this response. Extended wait also returned null. No Set transport changes made.
+- Added 18 synthetic helper checks and Mac CI execution. Rust tests total 49. Physical effect is not established by these tests.
+- Menu bar changed to icon-only USB status, with distinct unknown/pause/error icons; actions name Mac/Windows directly. Reopening should show settings. Icon visibility was user-confirmed for the intermediate text version; final icon-only UI visual acceptance is pending because computer-use could not attach to the hidden app and screen capture failed for Activity Monitor.
+- No new physical round trip or sleep acceptance is claimed. User confirmed Mac HDMI is direct, and could not find a DDC/CI option in the monitor OSD. A null reply does not establish whether this is firmware capability, a setting, or transport behavior.
+
 # Home/work profile and AppKit acceptance — 2026-10-17
 
 - 47 Rust tests pass, including migration, named upsert, home/work transition cancellation, absence/ambiguity/duplicate identity, editing/new/cancel and independent profile preferences. Host and Windows cross-target Clippy pass. 273 historical Swift assertions pass.

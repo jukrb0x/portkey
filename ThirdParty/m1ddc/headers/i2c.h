@@ -40,7 +40,7 @@ typedef struct {
 
 DDCPacket	createDDCPacket(UInt8 attrCode);
 
-void		prepareDDCRead(UInt8 *data);
+void		prepareDDCRead(DDCPacket *packet);
 void		prepareDDCWrite(DDCPacket *packet, UInt16 setValue);
 
 IOReturn	performDDCWrite(IOAVServiceRef avService, DDCPacket *packet);
@@ -48,7 +48,7 @@ IOReturn	performDDCRead(IOAVServiceRef avService, DDCPacket *packet);
 IOReturn	performDDCWriteAtChipAddress(IOAVServiceRef avService, UInt32 chipAddress, DDCPacket *packet);
 IOReturn	performDDCReadAtChipAddress(IOAVServiceRef avService, UInt32 chipAddress, DDCPacket *packet);
 
-DDCValue	convertI2CtoDDC(char *i2cBytes);
+DDCValue	convertI2CtoDDC(const UInt8 *bytes, size_t length, UInt8 expectedCode);
 
 // External functions
 
