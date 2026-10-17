@@ -60,8 +60,10 @@ impl Config {
         if !matches!(self.language.as_str(), "en" | "zh-Hans") {
             return Err("Unsupported language".into());
         }
-        if self.hubs.len() != 2 || self.hubs[0].id == self.hubs[1].id {
-            return Err("Enroll two different shared hubs".into());
+        if !(1..=2).contains(&self.hubs.len())
+            || (self.hubs.len() == 2 && self.hubs[0].id == self.hubs[1].id)
+        {
+            return Err("Enroll one or two different shared hubs".into());
         }
         for hub in &self.hubs {
             if !valid_hub_id(&self.platform, &hub.id) {
@@ -69,6 +71,7 @@ impl Config {
             }
         }
         if self.platform == "macos"
+            && self.hubs.len() == 2
             && self.hubs[0].id.split(':').nth(3) == self.hubs[1].id.split(':').nth(3)
         {
             return Err("Choose hubs at two different USB locations".into());
@@ -85,8 +88,8 @@ impl Config {
             .map(|enrolled| hubs.iter().filter(|h| h.id == enrolled.id).count())
             .collect();
         match counts.as_slice() {
-            [1, 1] => Ownership::Owned,
-            [0, 0] => Ownership::Absent,
+            [1] | [1, 1] => Ownership::Owned,
+            [0] | [0, 0] => Ownership::Absent,
             [1, 0] | [0, 1] => Ownership::Partial,
             _ => Ownership::Unknown,
         }
@@ -559,6 +562,112 @@ mod config_tests {
                 NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
             ))
             .join("config.json")
+    }
+    fn mirrored_configs() -> (Config, Config) {
+        let mut mac = config();
+        mac.local_input = 5;
+        mac.remote_input = 7;
+        let mut windows = mac.clone();
+        windows.platform = "windows".into();
+        windows.display_id = r"\\?\display#test_monitor#test_path".into();
+        windows.local_input = 7;
+        windows.remote_input = 5;
+        windows.hubs = vec![
+            Hub {
+                id: "windows:pciroot(0)#pci(1400)#usbroot(0)#usb(1)".into(),
+                label: "USB2".into(),
+            },
+            Hub {
+                id: "windows:pciroot(0)#pci(1400)#usbroot(0)#usb(2)".into(),
+                label: "USB3".into(),
+            },
+        ];
+        assert!(mac.validate().is_ok());
+        assert!(windows.validate().is_ok());
+        (mac, windows)
+    }
+    #[test]
+    fn dual_host_handoffs_agree_despite_staggered_hub_arrivals() {
+        let (mac, windows) = mirrored_configs();
+        let mut source = Policy::new();
+        let mut destination = Policy::new();
+        source.observe(mac.observe(&mac.hubs), 0);
+        assert_eq!(mac.input(source.tick(300).unwrap().target), 5);
+        destination.observe(windows.observe(&[]), 0);
+        assert!(destination.tick(300).is_none());
+
+        // Swap host roles on the return trip; inputs remain local to each host.
+        for (round, (from, to)) in [(&mac, &windows), (&windows, &mac)].into_iter().enumerate() {
+            let now = 1000 + round as u64 * 2000;
+            source.observe(from.observe(&from.hubs[..1]), now);
+            destination.observe(to.observe(&to.hubs[..1]), now);
+            assert!(source.tick(now + 999).is_none());
+            assert!(destination.tick(now + 999).is_none());
+            source.observe(from.observe(&[]), now + 1000);
+            destination.observe(to.observe(&to.hubs), now + 1000);
+            assert!(destination.tick(now + 1299).is_none());
+            let arrival = destination.tick(now + 1300).unwrap();
+            assert_eq!(arrival.target, Target::Local);
+            assert!(source.tick(now + 1699).is_none());
+            let departure = source.tick(now + 1700).unwrap();
+            assert_eq!(departure.target, Target::Remote);
+            assert_eq!(from.input(departure.target), to.input(arrival.target));
+            std::mem::swap(&mut source, &mut destination);
+        }
+    }
+    #[test]
+    fn dual_host_startup_unknown_and_partial_never_guess_remote() {
+        let (mac, windows) = mirrored_configs();
+        for config in [&mac, &windows] {
+            let mut policy = Policy::new();
+            for (step, observation) in [
+                Ownership::Unknown,
+                config.observe(&[]),
+                config.observe(&config.hubs[..1]),
+                config.observe(&[]),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let now = step as u64 * 1000;
+                policy.observe(observation, now);
+                assert!(policy.tick(now + 999).is_none());
+            }
+            policy.observe(config.observe(&config.hubs), 4000);
+            assert!(policy.tick(4299).is_none());
+            assert_eq!(
+                config.input(policy.tick(4300).unwrap().target),
+                config.local_input
+            );
+            policy.observe(Ownership::Unknown, 4400);
+            policy.observe(config.observe(&[]), 4500);
+            assert!(policy.tick(6000).is_none());
+        }
+    }
+    #[test]
+    fn dual_host_rapid_reversal_cancels_both_stale_requests() {
+        let (mac, windows) = mirrored_configs();
+        let mut a = Policy::new();
+        let mut b = Policy::new();
+        a.observe(mac.observe(&mac.hubs), 0);
+        a.tick(300).unwrap();
+        b.observe(windows.observe(&[]), 0);
+        a.observe(mac.observe(&[]), 1000);
+        b.observe(windows.observe(&windows.hubs), 1000);
+        let stale_arrival = b.tick(1300).unwrap();
+        let stale_departure = a.tick(1700).unwrap();
+        a.observe(mac.observe(&mac.hubs[..1]), 1800);
+        b.observe(windows.observe(&windows.hubs[..1]), 1800);
+        assert!(a.request().is_none());
+        assert!(b.request().is_none());
+        a.observe(mac.observe(&mac.hubs), 1900);
+        b.observe(windows.observe(&[]), 1900);
+        let correction = a.tick(2200).unwrap();
+        let departure = b.tick(2600).unwrap();
+        assert!(correction.generation > stale_departure.generation);
+        assert!(departure.generation > stale_arrival.generation);
+        assert_eq!(mac.input(correction.target), 5);
+        assert_eq!(windows.input(departure.target), 5);
     }
     #[test]
     fn refuses_unsupported_version_and_incomplete_enrollment() {

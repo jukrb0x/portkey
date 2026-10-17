@@ -10,6 +10,12 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
+struct Probe {
+    display_id: String,
+    epoch: u64,
+    generation: u64,
+}
+
 struct Job {
     config: Config,
     target: Target,
@@ -23,6 +29,8 @@ struct Shared {
     jobs: Latest<Job>,
     inventory: Option<(u64, Result<Inventory, String>)>,
     completion: Option<(u64, Result<WriteOutcome, String>)>,
+    probe: Option<Probe>,
+    probe_completion: Option<(u64, Result<u8, String>)>,
     stop: bool,
     refresh: bool,
     resumed: bool,
@@ -52,9 +60,10 @@ impl Worker {
                 }
                 let inventory_generation = state.jobs.generation();
                 let job = state.jobs.take();
+                let probe = state.probe.take();
                 let refresh = state.refresh || last_inventory.elapsed() >= Duration::from_secs(2);
                 state.refresh = false;
-                if job.is_none() && !refresh {
+                if job.is_none() && probe.is_none() && !refresh {
                     drop(
                         wake.wait_timeout(state, Duration::from_millis(250))
                             .unwrap(),
@@ -159,7 +168,36 @@ impl Worker {
                     }
                     outcome
                 });
+                let probe_result = probe.as_ref().map(|probe| {
+                    let (epoch, sleeping) = crate::lifecycle::snapshot();
+                    if sleeping
+                        || epoch != probe.epoch
+                        || !lock.lock().unwrap().jobs.current(probe.generation)
+                    {
+                        return Err("Input read cancelled by lifecycle or newer action.".into());
+                    }
+                    let inventory = inventory.as_ref().map_err(Clone::clone)?;
+                    if inventory
+                        .displays
+                        .iter()
+                        .filter(|d| d.id == probe.display_id)
+                        .count()
+                        != 1
+                    {
+                        return Err("Selected display is disconnected or ambiguous.".into());
+                    }
+                    let input = platform::read_input(&probe.display_id);
+                    if crate::lifecycle::snapshot() != (probe.epoch, false) {
+                        return Err("Input read interrupted by sleep/wake.".into());
+                    }
+                    input
+                });
                 let mut state = lock.lock().unwrap();
+                if let (Some(probe), Some(result)) = (probe, probe_result) {
+                    if state.jobs.current(probe.generation) {
+                        state.probe_completion = Some((probe.generation, result));
+                    }
+                }
                 if state.jobs.current(inventory_generation) {
                     state.inventory = Some((inventory_epoch, inventory));
                 }
@@ -182,6 +220,8 @@ impl Worker {
         let mut s = self.shared.0.lock().unwrap();
         s.jobs.invalidate();
         s.completion = None;
+        s.probe = None;
+        s.probe_completion = None;
         s.inventory = None;
     }
     fn submit(
@@ -198,6 +238,16 @@ impl Worker {
             queued: SystemTime::now(),
             epoch: crate::lifecycle::snapshot().0,
             display_ids,
+        });
+        self.shared.1.notify_one();
+    }
+    fn probe(&self, display_id: String, epoch: u64) {
+        self.invalidate();
+        let mut s = self.shared.0.lock().unwrap();
+        s.probe = Some(Probe {
+            display_id,
+            epoch,
+            generation: s.jobs.generation(),
         });
         self.shared.1.notify_one();
     }
@@ -231,10 +281,13 @@ fn require_unique_profile(
 /// UI-neutral state owner. Native frontends call this only from their UI thread.
 pub struct Controller {
     worker: Worker,
+    setup: Option<crate::setup::Setup>,
+    setup_action_error: Option<String>,
     policy: Policy,
     config: Option<Config>,
     profiles: Profiles,
     inventory: Option<Inventory>,
+    inventory_received: Option<Instant>,
     status: String,
     error: bool,
     editing: bool,
@@ -337,7 +390,10 @@ impl Controller {
             policy,
             path,
             worker: Worker::idle(),
+            setup: None,
+            setup_action_error: None,
             inventory: None,
+            inventory_received: None,
             started: Instant::now(),
             last_frame: SystemTime::now(),
             dispatch: Dispatch::default(),
@@ -369,21 +425,35 @@ impl Controller {
         let (epoch, sleeping) = (self.lifecycle)();
         if epoch != self.lifecycle_epoch {
             self.lifecycle_epoch = epoch;
+            if let Some(setup) = &mut self.setup {
+                setup.interrupted();
+            }
             self.reset();
             self.inventory = None;
             self.worker.refresh();
         }
         if self.last_frame.elapsed().unwrap_or(Duration::MAX) > Duration::from_secs(5) {
+            if let Some(setup) = &mut self.setup {
+                setup.interrupted();
+            }
             self.reset();
             self.worker.refresh();
         }
         self.last_frame = SystemTime::now();
-        let (inventory, completion, resumed) = {
+        let (inventory, completion, probe_completion, resumed) = {
             let mut s = self.worker.shared.0.lock().unwrap();
             let resumed = std::mem::take(&mut s.resumed);
-            (s.inventory.take(), s.completion.take(), resumed)
+            (
+                s.inventory.take(),
+                s.completion.take(),
+                s.probe_completion.take(),
+                resumed,
+            )
         };
         if resumed {
+            if let Some(setup) = &mut self.setup {
+                setup.interrupted();
+            }
             self.reset();
             self.inventory = None;
             self.worker.refresh();
@@ -394,6 +464,22 @@ impl Controller {
         {
             match result {
                 Ok(inventory) => {
+                    if let Some(setup) = &mut self.setup {
+                        if inventory
+                            .displays
+                            .iter()
+                            .filter(|d| d.id == setup.display_id)
+                            .count()
+                            == 1
+                        {
+                            setup.observe(&inventory.hubs, now);
+                        } else {
+                            self.worker.invalidate();
+                            setup.interrupted();
+                            setup.fail("Selected display disconnected or became ambiguous. Reconnect it and restart USB detection.");
+                        }
+                    }
+                    self.inventory_received = Some(Instant::now());
                     self.select_profile(&inventory);
                     if !self.editing && !sleeping && self.lifecycle_ok {
                         if let Some(c) = &self.config {
@@ -415,6 +501,11 @@ impl Controller {
                     self.inventory = Some(inventory);
                 }
                 Err(e) => {
+                    self.inventory = None;
+                    self.inventory_received = None;
+                    if let Some(setup) = &mut self.setup {
+                        setup.interrupted();
+                    }
                     if !self.editing {
                         self.config = None;
                     }
@@ -423,6 +514,19 @@ impl Controller {
                     self.status = e;
                     self.error = true;
                 }
+            }
+        }
+        if let Some((_, result)) = probe_completion.filter(|(generation, _)| {
+            self.worker
+                .shared
+                .0
+                .lock()
+                .unwrap()
+                .jobs
+                .current(*generation)
+        }) {
+            if let Some(setup) = &mut self.setup {
+                setup.input_result(result);
             }
         }
         if let Some((generation, result)) = completion.filter(|(generation, _)| {
@@ -517,13 +621,36 @@ impl Controller {
             "error": self.error || self.startup_error.is_some(),
             "lifecycle_ok": self.lifecycle_ok, "sleeping": (self.lifecycle)().1,
             "language": self.language, "config_path": self.path.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
-            "editing": self.editing
+            "editing": self.editing, "setup": self.setup
         })
     }
     pub fn action(&mut self, value: Value) -> Value {
+        let setup_action = value
+            .get("type")
+            .and_then(Value::as_str)
+            .is_some_and(|action| action.starts_with("setup_"));
         match self.perform(value) {
-            Ok(extra) => extra,
+            Ok(extra) => {
+                if setup_action {
+                    if let Some(previous) = self.setup_action_error.take() {
+                        // Only retire the error produced by the setup action, not a later hardware failure.
+                        if self.status == previous {
+                            self.status = self
+                                .setup
+                                .as_ref()
+                                .map(|s| s.message.clone())
+                                .unwrap_or_default();
+                            self.error = false;
+                        }
+                    }
+                }
+                extra
+            }
             Err(error) => {
+                self.setup_action_error = setup_action.then(|| error.clone());
+                if let Some(setup) = &mut self.setup {
+                    setup.fail(&error);
+                }
                 self.status = error.clone();
                 self.error = true;
                 json!({"ok":false,"error":crate::messages::display(&error, self.language == "zh-Hans")})
@@ -549,8 +676,103 @@ impl Controller {
             return Err(error.clone());
         }
         match action {
+            Action::SetupBegin { display_id, name } => {
+                let inventory = self
+                    .inventory
+                    .as_ref()
+                    .ok_or("Wait for display discovery first.")?;
+                if inventory
+                    .displays
+                    .iter()
+                    .filter(|d| d.id == display_id)
+                    .count()
+                    != 1
+                {
+                    return Err("Choose one connected display first.".into());
+                }
+                if name.trim().is_empty() || name.chars().count() > 80 {
+                    return Err("Enter a desk name from 1 to 80 characters.".into());
+                }
+                self.reset();
+                self.policy
+                    .set_automatic(false, self.started.elapsed().as_millis() as u64);
+                self.editing = true;
+                self.setup = Some(crate::setup::Setup::new(display_id, name.trim().into()));
+            }
+            Action::SetupUsbStart => {
+                if !self.lifecycle_ok || (self.lifecycle)().1 {
+                    return Err(
+                        "Restore power monitoring and wake this computer before setup.".into(),
+                    );
+                }
+                self.worker.invalidate();
+                if self
+                    .inventory_received
+                    .is_none_or(|time| time.elapsed() > Duration::from_secs(5))
+                {
+                    return Err("Wait for fresh USB discovery before starting detection.".into());
+                }
+                let inventory = self
+                    .inventory
+                    .as_ref()
+                    .ok_or("Wait for USB discovery first.")?;
+                let setup = self.setup.as_mut().ok_or("Choose a display first.")?;
+                if inventory
+                    .displays
+                    .iter()
+                    .filter(|d| d.id == setup.display_id)
+                    .count()
+                    != 1
+                {
+                    return Err(
+                        "Reconnect the selected display before starting USB detection.".into(),
+                    );
+                }
+                setup.start_usb(&inventory.hubs)?;
+                self.worker.refresh();
+            }
+            Action::SetupReadLocal => {
+                if !self.lifecycle_ok || (self.lifecycle)().1 {
+                    return Err(
+                        "Restore power monitoring and wake this computer before reading its input."
+                            .into(),
+                    );
+                }
+                let setup = self.setup.as_mut().ok_or("Start setup first.")?;
+                if !matches!(setup.phase, "usb_ready" | "exchange" | "ready") {
+                    return Err("Complete USB detection first.".into());
+                }
+                setup.phase = "reading_input";
+                setup.message = "Reading the selected monitor's current input…".into();
+                setup.error = false;
+                setup.ready = false;
+                setup.local_input = None;
+                setup.code = None;
+                self.worker
+                    .probe(setup.display_id.clone(), (self.lifecycle)().0);
+            }
+            Action::SetupPeerCode { code } => {
+                self.setup
+                    .as_mut()
+                    .ok_or("Start setup first.")?
+                    .peer_code(&code)?;
+            }
+            Action::SetupFinish => {
+                let setup = self.setup.as_ref().ok_or("Start setup first.")?;
+                let config = setup.config(&self.language)?;
+                let name = setup.name.clone();
+                let result =
+                    self.perform(json!({"type":"save","config":config,"profile_name":name}))?;
+                self.setup = None;
+                return Ok(result);
+            }
+            Action::SetupCancel => {
+                self.setup = None;
+                return self.perform(json!({"type":"edit","enabled":false}));
+            }
             Action::Refresh => self.worker.refresh(),
             Action::New => {
+                self.setup = None;
                 self.reset();
                 self.editing = true;
                 self.config = None;
@@ -564,6 +786,7 @@ impl Controller {
                 self.worker.refresh();
             }
             Action::Edit { enabled } => {
+                self.setup = None;
                 self.reset();
                 self.editing = enabled;
                 if !enabled {
@@ -777,6 +1000,23 @@ impl Controller {
 #[derive(serde::Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
 enum Action {
+    #[serde(rename = "setup_begin")]
+    SetupBegin {
+        display_id: String,
+        name: String,
+    },
+    #[serde(rename = "setup_usb_start")]
+    SetupUsbStart,
+    #[serde(rename = "setup_read_local")]
+    SetupReadLocal,
+    #[serde(rename = "setup_peer_code")]
+    SetupPeerCode {
+        code: String,
+    },
+    #[serde(rename = "setup_finish")]
+    SetupFinish,
+    #[serde(rename = "setup_cancel")]
+    SetupCancel,
     Refresh,
     Save {
         config: Config,
@@ -837,6 +1077,164 @@ mod tests {
         c.lifecycle = || (0, false);
         c.lifecycle_epoch = 0;
         c
+    }
+    fn begin_setup(c: &mut Controller) {
+        discover(c, &[0], true);
+        let id = c.config.as_ref().unwrap().display_id.clone();
+        assert_eq!(
+            c.action(json!({"type":"setup_begin","display_id":id,"name":"Guided desk"}))["ok"],
+            true
+        );
+        assert_eq!(c.action(json!({"type":"setup_usb_start"}))["ok"], true);
+        let hubs = c.config.as_ref().unwrap().hubs.clone();
+        let setup = c.setup.as_mut().unwrap();
+        setup.observe(&[], 0);
+        setup.observe(&[], 2000);
+        setup.observe(&hubs, 3000);
+        setup.observe(&hubs, 5000);
+        assert_eq!(setup.phase, "usb_ready");
+    }
+    #[test]
+    fn guided_cancel_and_new_draft_ignore_stale_read() {
+        let mut c = enrolled();
+        begin_setup(&mut c);
+        assert_eq!(c.action(json!({"type":"setup_read_local"}))["ok"], true);
+        let generation = c.worker.shared.0.lock().unwrap().jobs.generation();
+        assert_eq!(c.snapshot()["setup"]["phase"], "reading_input");
+        assert_eq!(c.action(json!({"type":"setup_cancel"}))["ok"], true);
+        assert!(c.setup.is_none());
+        assert!(!c.editing);
+        begin_setup(&mut c);
+        c.worker.shared.0.lock().unwrap().probe_completion = Some((generation, Ok(5)));
+        c.snapshot();
+        assert!(c.setup.as_ref().unwrap().local_input.is_none());
+        assert_eq!(c.profiles.profiles.len(), 1);
+    }
+    #[test]
+    fn guided_completion_saves_only_complete_paused_profile() {
+        let directory =
+            std::env::temp_dir().join(format!("portkey-guided-test-{}", std::process::id()));
+        let mut c = enrolled();
+        c.path = Ok(directory.join("profiles-rust.json"));
+        begin_setup(&mut c);
+        assert_eq!(c.action(json!({"type":"setup_finish"}))["ok"], false);
+        assert!(!directory.exists());
+        assert_eq!(c.action(json!({"type":"setup_read_local"}))["ok"], true);
+        let generation = c.worker.shared.0.lock().unwrap().jobs.generation();
+        c.worker.shared.0.lock().unwrap().probe_completion = Some((generation, Ok(5)));
+        c.snapshot();
+        assert_eq!(c.setup.as_ref().unwrap().code.as_deref(), Some("PK1-05-A2"));
+        assert_eq!(
+            c.action(json!({"type":"setup_peer_code","code":"PK1-05-A2"}))["ok"],
+            false
+        );
+        assert_eq!(
+            c.action(json!({"type":"setup_peer_code","code":"PK1-07-A0"}))["ok"],
+            true
+        );
+        assert_eq!(c.action(json!({"type":"setup_finish"}))["ok"], true);
+        assert!(c.setup.is_none());
+        let saved = Profiles::load(c.path.as_ref().unwrap()).unwrap();
+        assert_eq!(saved.profiles[0].config.local_input, 5);
+        assert_eq!(saved.profiles[0].config.remote_input, 7);
+        assert!(!saved.profiles[0].config.automatic);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+    #[test]
+    fn guided_sleep_and_read_failure_need_retry() {
+        let mut c = enrolled();
+        begin_setup(&mut c);
+        c.action(json!({"type":"setup_read_local"}));
+        let generation = c.worker.shared.0.lock().unwrap().jobs.generation();
+        c.worker.shared.0.lock().unwrap().probe_completion =
+            Some((generation, Err("DDC read failed".into())));
+        c.snapshot();
+        assert_eq!(c.setup.as_ref().unwrap().phase, "usb_ready");
+        assert!(c.setup.as_ref().unwrap().error);
+        c.action(json!({"type":"setup_read_local"}));
+        c.lifecycle = || (1, true);
+        c.snapshot();
+        assert_eq!(c.setup.as_ref().unwrap().phase, "display");
+        assert!(!c.setup.as_ref().unwrap().ready);
+        assert!(c.worker.shared.0.lock().unwrap().probe.is_none());
+    }
+    #[test]
+    fn guided_missing_display_and_stale_baseline_fail_closed() {
+        let mut c = enrolled();
+        begin_setup(&mut c);
+        c.inventory_received = Some(Instant::now() - Duration::from_secs(10));
+        assert_eq!(c.action(json!({"type":"setup_usb_start"}))["ok"], false);
+        let hubs = c.config.as_ref().unwrap().hubs.clone();
+        c.worker.shared.0.lock().unwrap().inventory = Some((
+            0,
+            Ok(Inventory {
+                hubs,
+                displays: vec![],
+            }),
+        ));
+        c.snapshot();
+        assert_eq!(c.setup.as_ref().unwrap().phase, "display");
+        assert!(c.setup.as_ref().unwrap().error);
+        assert_eq!(c.action(json!({"type":"setup_usb_start"}))["ok"], false);
+        assert_eq!(c.action(json!({"type":"setup_read_local"}))["ok"], false);
+        assert_eq!(c.action(json!({"type":"setup_finish"}))["ok"], false);
+    }
+    #[test]
+    fn guided_corrected_peer_code_retires_only_its_own_error() {
+        let mut c = enrolled();
+        begin_setup(&mut c);
+        c.setup.as_mut().unwrap().input_result(Ok(5));
+        assert_eq!(
+            c.action(json!({"type":"setup_peer_code","code":"bad"}))["ok"],
+            false
+        );
+        assert_eq!(c.snapshot()["error"], true);
+        assert_eq!(
+            c.action(json!({"type":"setup_peer_code","code":"PK1-07-A0"}))["ok"],
+            true
+        );
+        let snapshot = c.snapshot();
+        assert_eq!(snapshot["error"], false);
+        assert_eq!(snapshot["setup"]["error"], false);
+        assert_eq!(snapshot["setup"]["phase"], "ready");
+        assert!(snapshot["status"]
+            .as_str()
+            .unwrap()
+            .contains("Ready to save"));
+        c.action(json!({"type":"setup_peer_code","code":"bad"}));
+        c.status = "New hardware failure".into();
+        c.error = true;
+        c.action(json!({"type":"setup_peer_code","code":"PK1-07-A0"}));
+        assert!(c.error);
+        assert_eq!(c.status, "New hardware failure");
+    }
+    #[test]
+    fn guided_inventory_failure_clears_baseline_until_successful_discovery() {
+        let mut c = enrolled();
+        begin_setup(&mut c);
+        c.worker.shared.0.lock().unwrap().inventory = Some((0, Err("USB discovery failed".into())));
+        c.snapshot();
+        assert!(c.inventory.is_none());
+        assert!(c.inventory_received.is_none());
+        assert_eq!(c.action(json!({"type":"setup_usb_start"}))["ok"], false);
+        assert_eq!(c.setup.as_ref().unwrap().phase, "display");
+        discover(&mut c, &[0], true);
+        assert_eq!(c.action(json!({"type":"setup_usb_start"}))["ok"], true);
+        assert_eq!(c.setup.as_ref().unwrap().phase, "usb_wait_departure");
+    }
+    #[test]
+    fn one_hub_config_observes_exact_topology_and_duplicates_fail_closed() {
+        let mut config = enrolled().config.unwrap();
+        config.hubs.truncate(1);
+        assert!(config.validate().is_ok());
+        assert_eq!(config.observe(&config.hubs), Ownership::Owned);
+        assert_eq!(config.observe(&[]), Ownership::Absent);
+        assert_eq!(
+            config.observe(&[config.hubs[0].clone(), config.hubs[0].clone()]),
+            Ownership::Unknown
+        );
+        config.hubs.clear();
+        assert!(config.validate().is_err());
     }
     #[test]
     fn unenrolled_and_malformed_actions_never_enqueue() {

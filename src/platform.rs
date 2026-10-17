@@ -22,9 +22,9 @@ mod macos;
 #[cfg(any(target_os = "windows", test))]
 mod windows;
 #[cfg(target_os = "macos")]
-pub use macos::{inventory, set_input};
+pub use macos::{inventory, read_input, set_input};
 #[cfg(target_os = "windows")]
-pub use windows::{inventory, set_input};
+pub use windows::{inventory, read_input, set_input};
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub fn inventory() -> Result<Inventory, String> {
     Err("PortKey supports macOS and Windows".into())
@@ -41,6 +41,22 @@ fn require_display(displays: &[Display], id: &str) -> Result<(), String> {
         0 => Err("Enrolled display is unavailable; no command sent".into()),
         _ => Err("Ambiguous display identity; no command sent".into()),
     }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+pub fn read_input(_: &str) -> Result<u8, String> {
+    Err("Unsupported platform".into())
+}
+
+fn parse_input(text: &str) -> Result<u8, String> {
+    let text = text.trim();
+    if text.is_empty() || !text.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err("Invalid display input readback".into());
+    }
+    text.parse::<u8>()
+        .ok()
+        .filter(|input| *input != 0)
+        .ok_or_else(|| "Display input readback must be between 1 and 255".into())
 }
 
 // Drain both pipes concurrently so large inventory output cannot block the child.
@@ -116,6 +132,25 @@ fn run(command: &mut Command, timeout: Duration) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn input_readback_requires_one_nonzero_byte() {
+        for (text, value) in [("5\n", 5), (" 7\r\n", 7), ("255", 255)] {
+            assert_eq!(parse_input(text), Ok(value));
+        }
+        for text in [
+            "",
+            "0",
+            "256",
+            "-1",
+            "+5",
+            "5 7",
+            "5\n7",
+            "input: 5",
+            "confirmed",
+        ] {
+            assert!(parse_input(text).is_err(), "{text:?}");
+        }
+    }
     #[test]
     fn selection_requires_one_exact_identity() {
         let d = || Display {

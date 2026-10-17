@@ -1,5 +1,9 @@
 # Implementation brief — 2026-10-16
 
+## Two-host automatic switching (current approved scope)
+
+Run the native Rust app on both Mac and Windows with independently enrolled display/hub identities and mirrored local/remote inputs. The current home mapping is Mac local 5 / remote 7 and Windows local 7 / remote 5; these are user-specific values, not product defaults. Both hosts stay awake. Settled USB arrival selects local; settled departure after established ownership selects remote. The two requests therefore agree on the destination input. This supersedes the single-controller restriction in the initial Rust plan. No network service is needed. See [dual-host plan](plans/dual-host.md) for evidence limits, races and validation.
+
 ## Home/work profiles (current approved scope)
 
 The user wants automatic recognition of separately enrolled home/work displays. Add named per-display profiles over the shared Rust controller, preserving each environment's USB topology and input mapping. Unknown or ambiguous devices must not inherit another display's setup. Continue AppKit UI acceptance on the unlocked Mac; the currently attached display has changed and must be discovered again. See [profile plan](plans/location-profiles.md).

@@ -1,7 +1,7 @@
 #![cfg_attr(not(target_os = "windows"), allow(dead_code))]
 use super::*;
 const BRIDGE: &str = include_str!("windows.ps1");
-fn powershell(mode: &str, config: Option<(&Config, u8)>) -> Result<String, String> {
+fn powershell(mode: &str, target: Option<(&str, Option<u8>)>) -> Result<String, String> {
     let system = std::env::var_os("SystemRoot").ok_or("Windows system directory missing")?;
     let exe =
         std::path::PathBuf::from(system).join("System32/WindowsPowerShell/v1.0/powershell.exe");
@@ -15,10 +15,11 @@ fn powershell(mode: &str, config: Option<(&Config, u8)>) -> Result<String, Strin
             BRIDGE,
         ])
         .env("PORTKEY_MODE", mode);
-    if let Some((config, input)) = config {
-        command
-            .env("PORTKEY_DISPLAY", &config.display_id)
-            .env("PORTKEY_INPUT", input.to_string());
+    if let Some((display_id, input)) = target {
+        command.env("PORTKEY_DISPLAY", display_id);
+        if let Some(input) = input {
+            command.env("PORTKEY_INPUT", input.to_string());
+        }
     }
     run(&mut command, Duration::from_secs(15))
 }
@@ -52,13 +53,19 @@ fn parse_inventory(text: &str) -> Result<Inventory, String> {
         hubs: parsed.hubs,
     })
 }
+pub fn read_input(display_id: &str) -> Result<u8, String> {
+    if !display_id.starts_with(r"\\?\") {
+        return Err("Display lacks stable interface identity".into());
+    }
+    parse_input(&powershell("read", Some((display_id, None)))?)
+}
 pub fn set_input(config: &Config, input: u8) -> Result<WriteOutcome, String> {
     config.validate()?;
     if config.platform != "windows" || ![config.local_input, config.remote_input].contains(&input) {
         return Err("Invalid platform or unenrolled input".into());
     }
     // Child re-enumerates immediately before opening the unique physical monitor.
-    let response = powershell("write", Some((config, input)))?;
+    let response = powershell("write", Some((&config.display_id, Some(input))))?;
     match response.trim() {
         "confirmed" => Ok(WriteOutcome::Confirmed),
         "sent" => Ok(WriteOutcome::SentUnverified(

@@ -86,6 +86,14 @@ pub fn inventory() -> Result<Inventory, String> {
         hubs: usb_inventory()?,
     })
 }
+pub fn read_input(display_id: &str) -> Result<u8, String> {
+    require_display(&displays()?, display_id)?;
+    let output = run(
+        Command::new(helper()?).args(["display", display_id, "get", "input"]),
+        Duration::from_secs(5),
+    )?;
+    parse_input(&output)
+}
 pub fn set_input(config: &Config, input: u8) -> Result<WriteOutcome, String> {
     config.validate()?;
     if config.platform != "macos" || ![config.local_input, config.remote_input].contains(&input) {
@@ -96,7 +104,7 @@ pub fn set_input(config: &Config, input: u8) -> Result<WriteOutcome, String> {
         Command::new(helper()?).args(write_args(&config.display_id, input)),
         Duration::from_secs(5),
     )?;
-    // The pinned helper does not fully validate DDC replies. Never promote its numeric output to confirmation.
+    // A successful set reports transport completion, not a verified input change.
     Ok(WriteOutcome::SentUnverified(
         "DDC command sent; confirm the display changed inputs".into(),
     ))

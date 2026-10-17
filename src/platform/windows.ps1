@@ -52,7 +52,7 @@ public static class PortKeyNative {
         if(error!=null)throw new Exception(error);
         return result.ToArray();
     }
-    public static string Write(string id,uint input) {
+    static string Access(string id,uint input,bool write) {
         var matches=new List<Display>();
         foreach(var d in Displays()) if(String.Equals(d.id,id,StringComparison.Ordinal))matches.Add(d);
         if(matches.Count!=1)throw new Exception("Enrolled display missing or ambiguous; no command sent");
@@ -62,16 +62,29 @@ public static class PortKeyNative {
         var physical=new PHYSICAL[count];
         if(!GetPhysicalMonitorsFromHMONITOR(matches[0].handle,count,physical))throw new Exception("Cannot open enrolled physical monitor");
         try {
+            if(!write) {
+                uint readKind,readCurrent,readMaximum;
+                if(!GetVCPFeatureAndVCPFeatureReply(physical[0].handle,0x60,out readKind,out readCurrent,out readMaximum)
+                    || readCurrent==0 || readCurrent>255)throw new Exception("DDC input readback unavailable or invalid");
+                return readCurrent.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
             if(!SetVCPFeature(physical[0].handle,0x60,input))throw new Exception("DDC write failed; monitor outcome unknown");
             System.Threading.Thread.Sleep(1500);
             uint kind,current,maximum;
             return GetVCPFeatureAndVCPFeatureReply(physical[0].handle,0x60,out kind,out current,out maximum) && current==input ? "confirmed" : "sent";
         } finally { DestroyPhysicalMonitors(count,physical); }
     }
+    public static string Read(string id) { return Access(id,0,false); }
+    public static string Write(string id,uint input) {
+        if(input==0 || input>255)throw new Exception("Invalid display input");
+        return Access(id,input,true);
+    }
 }
 '@
 if ($env:PORTKEY_MODE -eq 'write') {
     [PortKeyNative]::Write($env:PORTKEY_DISPLAY, [uint32]$env:PORTKEY_INPUT)
+} elseif ($env:PORTKEY_MODE -eq 'read') {
+    [PortKeyNative]::Read($env:PORTKEY_DISPLAY)
 } elseif ($env:PORTKEY_MODE -eq 'inventory') {
     $hubs = @()
     $devices = @(Get-PnpDevice -PresentOnly -Class USB -ErrorAction Stop)
@@ -86,7 +99,24 @@ if ($env:PORTKEY_MODE -eq 'write') {
         }
     }
     if ($hubs.Count -eq 0) { throw 'No USB root hubs could be enumerated; automation paused' }
-    @{ displays = @([PortKeyNative]::Displays() | ForEach-Object { @{id=$_.id;label=$_.label} }); hubs = @($hubs) } | ConvertTo-Json -Depth 5 -Compress
+    # WMI names are cosmetic only; join the entire PnP instance, never a model/VID prefix.
+    $monitorNames = @(Get-CimInstance -Namespace root/wmi -ClassName WmiMonitorID -ErrorAction SilentlyContinue)
+    $displays = @([PortKeyNative]::Displays() | ForEach-Object {
+        $display = $_
+        $label = $display.label
+        $parts = $display.id -split '#'
+        if ($parts.Count -eq 4 -and $parts[0] -ieq '\\?\display') {
+            $instance = 'DISPLAY\' + $parts[1] + '\' + $parts[2]
+            $names = @($monitorNames | Where-Object { ($_.InstanceName -replace '_[0-9]+$', '') -ieq $instance })
+            if ($names.Count -eq 1) {
+                $name = -join @($names[0].UserFriendlyName | Where-Object { $_ -ne 0 } | ForEach-Object { [char]$_ })
+                $manufacturer = -join @($names[0].ManufacturerName | Where-Object { $_ -ne 0 } | ForEach-Object { [char]$_ })
+                if (-not [string]::IsNullOrWhiteSpace($name)) { $label = ($manufacturer + ' ' + $name).Trim() }
+            }
+        }
+        @{id=$display.id;label=$label + ' · ' + $display.id}
+    })
+    @{ displays = $displays; hubs = @($hubs) } | ConvertTo-Json -Depth 5 -Compress
 } else { throw 'Invalid hardware helper mode' }
 } catch {
     [Console]::Error.WriteLine($_.Exception.Message)
