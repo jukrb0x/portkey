@@ -9,6 +9,8 @@ for binary in "$app/Contents/MacOS/PortKey" "$app/Contents/Helpers/m1ddc" "$app/
     test -x "$binary"
     otool -l "$binary" | awk '$1 == "minos" {found=1; if ($2 != "13.0") exit 1} END {if (!found) exit 1}'
 done
+# Reject packages linked against the old SDK even when their version/signature is valid.
+otool -l "$app/Contents/MacOS/PortKey" | awk '$1 == "sdk" {found=1; if ($2 + 0 < 26) exit 1} END {if (!found) exit 1}'
 otool -L "$app/Contents/MacOS/PortKey" | grep -q AppKit.framework
 otool -L "$app/Contents/MacOS/PortKey" | grep -q SwiftUI.framework
 test -s "$app/Contents/Resources/PortKey.icns"

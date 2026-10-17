@@ -1,6 +1,6 @@
 [package]
 name = "portkey"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 description = "A local USB-switch companion for explicitly enrolled displays"
 publish = false

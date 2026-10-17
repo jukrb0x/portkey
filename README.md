@@ -29,7 +29,7 @@ The diagram is one example. Mac/Mac and Windows/Windows configurations are also 
 
 ## Download
 
-Download **[PortKey v1.0.0](https://github.com/jukrb0x/portkey/releases/tag/v1.0.0)** for macOS arm64 or Windows x64. Builds have been tested locally on Apple Silicon macOS and Windows 11 x64. This is not universal hardware compatibility or a completed sleep/wake qualification. See the [verification record](docs/RUST-VERIFICATION.md) for the measured scope.
+Download **[PortKey v1.0.1](https://github.com/jukrb0x/portkey/releases/tag/v1.0.1)** for macOS arm64 or Windows x64. Builds have been tested locally on Apple Silicon macOS and Windows 11 x64. This is not universal hardware compatibility or a completed sleep/wake qualification. See the [verification record](docs/RUST-VERIFICATION.md) for the measured scope.
 
 The Mac package is ad-hoc signed, without Apple Developer ID notarization. The Windows package is unsigned and needs the matching Windows App SDK runtime. Public signing and clean-machine installation remain release review items.
 
@@ -61,7 +61,7 @@ cargo clippy --locked --all-targets -- -D warnings
 ./scripts/test-rust.sh
 ```
 
-CI checks the Rust core and both native builds. The [release workflow](.github/workflows/release.yml) builds and publishes versioned archives and checksums after both platform checks pass. See the [release notes](docs/releases/v1.0.0.md).
+CI checks the Rust core and both native builds. The [release workflow](.github/workflows/release.yml) builds and publishes versioned archives and checksums after both platform checks pass. See the [release notes](docs/releases/v1.0.1.md).
 
 Configuration stays in `~/Library/Application Support/PortKey/` on macOS or `%APPDATA%\PortKey\` on Windows. Quit before backing up or restoring it. Use a fresh `PORTKEY_CONFIG_DIR` for isolated development; do not copy enabled live profiles into smoke tests.
 

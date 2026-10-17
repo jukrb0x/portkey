@@ -3,12 +3,19 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/rust-env.sh
 export MACOSX_DEPLOYMENT_TARGET=13.0
+# The linked SDK controls native SwiftUI/AppKit appearance on macOS 26.
+sdk_version="$(xcrun --sdk macosx --show-sdk-version)"
+if [[ "${sdk_version%%.*}" -lt 26 ]]; then
+    echo "PortKey requires macOS SDK 26 or newer to preserve its native appearance (found $sdk_version)." >&2
+    exit 1
+fi
+sdk_path="$(xcrun --sdk macosx --show-sdk-path)"
 cargo build --locked --release
 make -B -C ThirdParty/m1ddc binary
 app="${1:-$PWD/dist/PortKey.app}"
 [[ "$app" = /* ]] || app="$PWD/$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" "$app/Contents/Resources"
-swiftc -O -swift-version 5 -target "$(uname -m)-apple-macosx13.0" \
+xcrun swiftc -sdk "$sdk_path" -O -swift-version 5 -target "$(uname -m)-apple-macosx13.0" \
     -import-objc-header native/portkey.h \
     -framework AppKit -framework SwiftUI -framework CoreFoundation -framework CoreGraphics -framework ColorSync -framework IOKit \
     native/macos/*.swift target/release/libportkey.a -o "$app/Contents/MacOS/PortKey"
