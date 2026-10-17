@@ -1,17 +1,17 @@
-name: Draft release candidate
+name: Publish release
 on:
   workflow_dispatch:
     inputs:
       tag:
         description: Existing release tag (must match checked-in version)
         required: true
-        default: v1.0.0-rc.1
+        default: v1.0.0
   push:
-    tags: ['v*-rc.*']
+    tags: ['v*']
 permissions:
   contents: read
 concurrency:
-  group: draft-release-${{ github.event.inputs.tag || github.ref_name }}
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
   cancel-in-progress: false
 jobs:
   validate:
@@ -36,7 +36,7 @@ jobs:
     uses: ./.github/workflows/rust.yml
     permissions:
       contents: read
-  draft:
+  publish:
     needs: [validate, build]
     runs-on: ubuntu-latest
     permissions:
@@ -50,7 +50,7 @@ jobs:
           pattern: PortKey-*
           path: release
           merge-multiple: true
-      - name: Create draft prerelease only
+      - name: Publish verified release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -58,4 +58,5 @@ jobs:
         run: |
           cd release
           sha256sum --check *.sha256
-          gh release create "$RELEASE_TAG" ./*.zip ./*.sha256 --verify-tag --draft --prerelease --title "PortKey $RELEASE_TAG" --notes-file "../docs/releases/$RELEASE_TAG.md"
+          test "$(find . -maxdepth 1 -name '*.zip' | wc -l)" -eq 2
+          gh release create "$RELEASE_TAG" ./*.zip ./*.sha256 --verify-tag --latest --title "PortKey $RELEASE_TAG" --notes-file "../docs/releases/$RELEASE_TAG.md"
