@@ -64,6 +64,28 @@ struct Notice: View {
         }.padding(.vertical, 5).frame(maxWidth: .infinity, alignment: .leading)
     }
 }
+// Keep one fixed-size title instead of morphing the native window title on page changes.
+private struct PageToolbarTitle: ToolbarContent {
+    let title: String
+    @ToolbarContentBuilder var body: some ToolbarContent {
+        if #available(macOS 26, *) {
+            ToolbarItem(id: "page-title", placement: .navigation) { label }
+                .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(id: "page-title", placement: .navigation) { label }
+        }
+    }
+    private var label: some View {
+        Text(title)
+            .font(.system(size: 13, weight: .semibold))
+            .fixedSize()
+            .transaction { transaction in
+                transaction.animation = nil
+                transaction.disablesAnimations = true
+            }
+            .accessibilityAddTraits(.isHeader)
+    }
+}
 struct ProductRoot: View {
     @ObservedObject var model: PortKeyStore
     @State private var visibility: NavigationSplitViewVisibility = .all
@@ -114,13 +136,9 @@ struct ProductRoot: View {
                 }
             }
             .formStyle(.grouped)
-            .navigationTitle(pageTitle)
+            .navigationTitle("PortKey")
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button { model.beginSetup() } label: { Label(model.text("Add profile", "添加配置"), systemImage: "plus") }
-                    .help(model.text("Add or resume profile setup", "添加或继续配置设置"))
-                    .disabled(!model.canConfigure)
-                }
+                PageToolbarTitle(title: pageTitle)
             }
         }
         .frame(minWidth: 900, minHeight: 680)
@@ -289,7 +307,7 @@ struct WorkspacesView: View {
             }
         }
         Notice(title: model.text("Viewing a profile does not apply it", "查看配置不会启用它"), detail: model.text("PortKey applies a profile only to its exact enrolled display. When several profiles share a display, choose the wiring profile you are using.", "PortKey 仅将配置用于其确切绑定的显示器。同一显示器有多个配置时，请选择当前使用的接线配置。"))
-        Button { model.beginSetup() } label: { Label(model.text("Add or resume profile", "添加或继续配置设置"), systemImage: "plus") }
+        Button { model.beginSetup() } label: { Label(model.snapshot?.draft_available == true ? model.text("Continue setup", "继续配置") : model.text("Add profile", "添加配置"), systemImage: "plus") }
     }
     private func profileComputer(_ name: String, _ os: String, _ foot: String) -> some View {
         VStack(alignment: .leading, spacing: 8) { Text(name).font(.headline); Muted(os); Muted(foot) }.frame(maxWidth: .infinity, alignment: .leading)
