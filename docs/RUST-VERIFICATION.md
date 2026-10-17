@@ -1,3 +1,11 @@
+# Exact display routing and active-input probes — 2026-10-17
+
+- Replaced global traversal-order proxy selection with selected-controller, endpoint and common-parent matching. Multiple matching routes and unknown topology fail closed. Runtime registry handles are never persisted. This fixes a source-level targeting defect; it does not establish that routing caused the reported switching failure.
+- 26 synthetic protocol/name checks and 8 simulated registry scenarios pass. The latter exercise the production selector against different parent identities, traversal orders, ambiguity, invalid iteration, service creation failure and bridge selection, with balanced references. All 49 Rust tests pass. The native AppKit release bundle builds and its signature/linkage/provenance verification passes.
+- With the user selecting HDMI1 manually, checksummed Get replies report input 5 (maximum 14), and brightness reads succeed. The monitor's validated capabilities advertise inputs 17/18/15/16. This inconsistency remains unresolved; enrollment values have not been changed based on speculation.
+- With automation paused and the app quit, bounded explicit-display Set requests for advertised DP1 (15) and HDMI1 (17) return transport success, but subsequent input reads remain 5. The user confirmed the picture did not change, then manually selected DP and confirmed Windows was visible. A subsequent Mac Get failed reply validation, consistent with the earlier inactive-HDMI null responses; it did not reveal the DP input number. A read-only Windows probe is prepared locally but has not been executed. No visible switching success is claimed.
+- Raw identity, frames and hardware trial logs remain in ignored local diagnostics. No sleep or Windows runtime acceptance was performed in this investigation.
+
 # Switching investigation and menu status — 2026-10-17
 
 - User reported no visible input switch on the new display. Home automation was enabled and the UI observed both enrolled USB hubs absent; a manual request showed sent/unverified. Actual switching remains unresolved.

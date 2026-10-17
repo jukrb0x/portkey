@@ -1,5 +1,6 @@
 @import Foundation;
 #include "i2c.h"
+#include "route_identity.h"
 #include <assert.h>
 #include <stdio.h>
 // Parser tests must never contact a display.
@@ -7,6 +8,16 @@ IOReturn IOAVServiceReadI2C(IOAVServiceRef s,uint32_t c,uint32_t o,void *b,uint3
 IOReturn IOAVServiceWriteI2C(IOAVServiceRef s,uint32_t c,uint32_t o,void *b,uint32_t n) { (void)s;(void)c;(void)o;(void)b;(void)n; abort(); }
 static void checksum(UInt8 *p) { p[10]=0x50; for(int i=0;i<10;i++)p[10]^=p[i]; }
 int main(void) { @autoreleasepool {
+ DDCPacket setDP=createDDCPacket(INPUT);prepareDDCWrite(&setDP,15);
+ const UInt8 expectedDP[]={0x84,0x03,0x60,0,0x0f,0xd7};assert(memcmp(setDP.data,expectedDP,6)==0 && setDP.inputAddr==0x51);
+ DDCPacket setHDMI=createDDCPacket(INPUT);prepareDDCWrite(&setHDMI,17);
+ const UInt8 expectedHDMI[]={0x84,0x03,0x60,0,0x11,0xc9};assert(memcmp(setHDMI.data,expectedHDMI,6)==0 && setHDMI.inputAddr==0x51);
+ assert(displayRouteNamesMatch("dispext0","dispext0:dcpav-service-epic:0","dcpext0"));
+ assert(displayRouteNamesMatch("dispext12","dispext12:dcpav-service-epic:1","dcpext12"));
+ assert(!displayRouteNamesMatch("dispext0","dispext1:dcpav-service-epic:0","dcpext0"));
+ assert(!displayRouteNamesMatch("dispext0","dispext0:dcpav-service-epic:0","dcpext1"));
+ assert(!displayRouteNamesMatch("dispext0","dispext0:dcpav-service-epic:","dcpext0"));
+ assert(!displayRouteNamesMatch("dispext0x","dispext0x:dcpav-service-epic:0","dcpext0x"));
  DDCPacket request=createDDCPacket(INPUT);prepareDDCRead(&request);
  const UInt8 expected[]={0x82,0x01,0x60,0xdc};assert(memcmp(request.data,expected,4)==0);
  prepareDDCRead(&request);assert(memcmp(request.data,expected,4)==0);
@@ -27,5 +38,5 @@ int main(void) { @autoreleasepool {
  UInt8 garbage[12];memset(garbage,0xec,12);garbage[9]=3;assert(convertI2CtoDDC(garbage,12,0x60).curValue==-1);
  UInt8 big[12];memcpy(big,valid,12);big[6]=0x12;big[7]=0x34;big[8]=0xab;big[9]=0xcd;checksum(big);
  value=convertI2CtoDDC(big,12,0x60);assert(value.maxValue==0x1234 && value.curValue==0xabcd);
- puts("DDC reply validation: 18 checks passed (synthetic; no hardware access)");
+ puts("DDC reply validation: 26 checks passed (synthetic; no hardware access)");
 } }
