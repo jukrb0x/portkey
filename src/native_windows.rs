@@ -50,6 +50,75 @@ fn tr(zh: bool, en: &'static str, cn: &'static str) -> &'static str {
     }
 }
 
+const USB_DEVICE_INTERFACE: windows_sys::core::GUID =
+    windows_sys::core::GUID::from_u128(0xa5dcbf10_6530_11d2_901f_00c04fb951ed);
+const USB_HUB_INTERFACE: windows_sys::core::GUID =
+    windows_sys::core::GUID::from_u128(0xf18a0e88_c30c_11d0_8815_00a0c906bed8);
+
+fn usb_interface_hint(event: u32, kind: u32, class: windows_sys::core::GUID) -> bool {
+    matches!(event, DBT_DEVICEARRIVAL | DBT_DEVICEREMOVECOMPLETE)
+        && kind == DBT_DEVTYP_DEVICEINTERFACE
+        && [USB_DEVICE_INTERFACE, USB_HUB_INTERFACE]
+            .iter()
+            .any(|known| {
+                (class.data1, class.data2, class.data3, class.data4)
+                    == (known.data1, known.data2, known.data3, known.data4)
+            })
+}
+unsafe fn is_usb_interface_hint(event: u32, payload: LPARAM) -> bool {
+    if !matches!(event, DBT_DEVICEARRIVAL | DBT_DEVICEREMOVECOMPLETE) || payload == 0 {
+        return false;
+    }
+    let header = &*(payload as *const DEV_BROADCAST_HDR);
+    if header.dbch_devicetype != DBT_DEVTYP_DEVICEINTERFACE
+        || header.dbch_size < size_of::<DEV_BROADCAST_DEVICEINTERFACE_W>() as u32
+    {
+        return false;
+    }
+    let interface = &*(payload as *const DEV_BROADCAST_DEVICEINTERFACE_W);
+    usb_interface_hint(event, interface.dbcc_devicetype, interface.dbcc_classguid)
+}
+struct UsbNotifications(Vec<HDEVNOTIFY>);
+impl UsbNotifications {
+    unsafe fn register(window: HWND) -> Self {
+        let mut handles = Vec::new();
+        for class in [USB_DEVICE_INTERFACE, USB_HUB_INTERFACE] {
+            let filter = DEV_BROADCAST_DEVICEINTERFACE_W {
+                dbcc_size: size_of::<DEV_BROADCAST_DEVICEINTERFACE_W>() as u32,
+                dbcc_devicetype: DBT_DEVTYP_DEVICEINTERFACE,
+                dbcc_classguid: class,
+                ..std::mem::zeroed()
+            };
+            let handle = RegisterDeviceNotificationW(
+                window,
+                &filter as *const _ as *const _,
+                DEVICE_NOTIFY_WINDOW_HANDLE,
+            );
+            if handle.is_null() {
+                crate::timing::event("usb_notification_registration_failed", "native", None, None);
+            } else {
+                handles.push(handle);
+            }
+        }
+        crate::timing::event(
+            "usb_notification_registrations",
+            "native",
+            None,
+            Some(handles.len() as u64),
+        );
+        Self(handles)
+    }
+}
+impl Drop for UsbNotifications {
+    fn drop(&mut self) {
+        for handle in self.0.drain(..) {
+            unsafe {
+                UnregisterDeviceNotification(handle);
+            }
+        }
+    }
+}
+
 struct Ui {
     controller: Controller,
     window: HWND,
@@ -64,6 +133,7 @@ struct Ui {
     tray: NOTIFYICONDATAW,
     taskbar_created: u32,
     action_error: Option<String>,
+    pending_setup_error: Option<String>,
 }
 impl Ui {
     unsafe fn control(&self, id: usize) -> HWND {
@@ -408,8 +478,10 @@ impl Ui {
         let phase = snapshot["setup"]["phase"].as_str().unwrap_or("select");
         let (en, cn, button_en, button_cn) = match phase {
             "display" => ("1. Connect the USB switch to this PC. Leave other devices connected. We will learn the switch when you press its physical button away and back.", "1. 将 USB 切换器连接到本机，保持其他设备连接。按下切换器实体按钮切走再切回，即可识别切换器。", "Capture USB baseline", "记录 USB 初始状态"),
-            "usb_wait_departure" => ("2. Press the physical USB switch button to the other computer. Wait a few seconds before switching back. Keep PortKey running here.", "2. 按下 USB 切换器实体按钮切到另一台电脑，等待几秒后再切回。在本机保持 PortKey 运行。", "Waiting for switch…", "等待切换…"),
-            "usb_wait_return" => ("2. Press the same USB switch button to return to this PC. Its USB connections will be recognized automatically.", "2. 按下同一个 USB 切换器按钮切回本机，将自动识别其 USB 连接。", "Waiting for return…", "等待切回…"),
+            "usb_capturing" => ("Checking the USB connections. Keep the USB switch connected to this PC. Do not switch yet; wait for the next instruction.", "正在检查 USB 连接。请保持 USB 切换器连接到本机，暂时不要切换，等待下一步提示。", "Checking USB…", "正在检查 USB…"),
+            "usb_retry" => ("USB detection needs another try. Connect the USB switch to this PC and leave it here, then restart detection. Wait for this window’s cue before switching back next time.", "需要重新检测 USB。请先将 USB 切换器连接到本机并保持连接，然后重新检测。下次请等待此窗口的提示后再切回。", "USB is on this PC — retry detection", "USB 已连接本机 — 重新检测"),
+            "usb_wait_departure" => ("2. Press the physical USB switch button to the other computer. Leave the monitor input unchanged so this window stays visible. Keep USB away until this window says “USB departure detected — switch back now”.", "2. 按下 USB 切换器实体按钮切到另一台电脑。不要更改显示器输入，保持此窗口可见。请等待此窗口显示“已检测到 USB 切出 — 现在请切回”后再切回。", "Waiting for USB departure…", "等待检测 USB 切出…"),
+            "usb_wait_return" => ("USB departure detected — switch back now. Press the same USB switch button to return to this PC, then keep it here while the connections settle.", "已检测到 USB 切出 — 现在请切回。按下同一个 USB 切换器按钮切回本机，然后保持连接，等待检测完成。", "Waiting for return…", "等待切回…"),
             "usb_ready" => ("3. USB switch learned. Make sure the selected monitor shows THIS PC’s picture; use its input menu if needed. Then read the current input. This reads the monitor without switching it.", "3. 已识别 USB 切换器。请确认所选显示器正在显示本机画面（必要时使用显示器输入菜单切换），然后读取当前输入。此操作只读取，不切换画面。", "This PC is visible — read input", "已显示本机 — 读取输入"),
             "reading_input" => ("Reading the selected monitor’s current input…", "正在读取所选显示器的当前输入…", "Reading…", "读取中…"),
             "exchange" => ("4. Run setup on the other computer using the SAME physical monitor, with its own picture visible. Copy this code there, and enter its code below. Codes transfer input choices offline; no account or server is needed.", "4. 在另一台电脑上使用同一台实体显示器，并显示其自身画面时运行同样的设置。将本机代码复制过去，并在下方输入另一台电脑的代码。代码可离线传递输入配置，无需账号或服务器。", "Use other computer’s code", "使用另一台电脑的代码"),
@@ -450,7 +522,7 @@ impl Ui {
             self.control(SETUP_NEXT),
             (!matches!(
                 phase,
-                "usb_wait_departure" | "usb_wait_return" | "reading_input"
+                "usb_capturing" | "usb_wait_departure" | "usb_wait_return" | "reading_input"
             )) as i32,
         );
         for id in [DISPLAY, PROFILE_NAME] {
@@ -462,7 +534,7 @@ impl Ui {
     }
     unsafe fn setup_next(&mut self) {
         let action = match self.snapshot["setup"]["phase"].as_str() {
-            Some("display") => json!({"type":"setup_usb_start"}),
+            Some("display" | "usb_retry") => json!({"type":"setup_usb_start"}),
             Some("usb_ready") => json!({"type":"setup_read_local"}),
             Some("exchange") => json!({"type":"setup_peer_code","code":self.text(PEER_CODE)}),
             Some("ready") => json!({"type":"setup_finish"}),
@@ -470,7 +542,9 @@ impl Ui {
                 json!({"type":"setup_begin","display_id":self.selected(DISPLAY, &self.displays).map(|d|d["id"].clone()),"name":self.text(PROFILE_NAME)})
             }
         };
-        self.send(action);
+        if !self.send(action) {
+            self.pending_setup_error = self.action_error.clone();
+        }
     }
     unsafe fn labels(&self) {
         for (id, en, cn) in [
@@ -769,12 +843,45 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, message: u32, w: WPARAM, l: LPARA
             return 0;
         }
         match message {
+            WM_DEVICECHANGE
+                if w == DBT_DEVNODES_CHANGED as usize || is_usb_interface_hint(w as u32, l) =>
+            {
+                // Device notifications are hints; only worker inventory establishes ownership.
+                crate::timing::event(
+                    "device_change",
+                    if w == DBT_DEVNODES_CHANGED as usize {
+                        "native"
+                    } else {
+                        "usb_interface"
+                    },
+                    None,
+                    None,
+                );
+                ui.controller.action(json!({"type":"usb_refresh"}));
+                return 1;
+            }
+            WM_DISPLAYCHANGE => {
+                ui.controller.action(json!({"type":"refresh"}));
+                return 0;
+            }
             WM_TIMER => {
                 ui.tick();
                 return 0;
             }
             WM_COMMAND => {
                 ui.command(w & 0xffff, ((w >> 16) & 0xffff) as u16);
+                let error = ui.pending_setup_error.take();
+                let title = tr(ui.zh, "PortKey setup", "PortKey 设置");
+                // The dialog pumps timer messages; release the borrow so policy keeps ticking.
+                drop(ui);
+                if let Some(error) = error {
+                    MessageBoxW(
+                        hwnd,
+                        wide(&error).as_ptr(),
+                        wide(title).as_ptr(),
+                        MB_OK | MB_ICONWARNING,
+                    );
+                }
                 return 0;
             }
             TRAY => {
@@ -1065,12 +1172,14 @@ unsafe fn setup(hwnd: HWND) -> Result<(), String> {
         tray,
         taskbar_created: RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()),
         action_error: None,
+        pending_setup_error: None,
     }));
     SetWindowLongPtrW(hwnd, GWLP_USERDATA, (&*ui as *const RefCell<Ui>) as isize);
     if Shell_NotifyIconW(NIM_ADD, &ui.borrow().tray) == 0 {
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
         return Err("Cannot create the PortKey notification-area icon".into());
     }
+    let _usb_notifications = UsbNotifications::register(hwnd);
     ui.borrow_mut().tick();
     if SetTimer(hwnd, 1, 200, None) == 0 {
         Shell_NotifyIconW(NIM_DELETE, &ui.borrow().tray);
@@ -1104,6 +1213,42 @@ mod tests {
     use super::{friendly_display_name, merge_choices, parse_inputs, should_seed_form};
     use serde_json::{json, Value};
 
+    #[test]
+    fn usb_notifications_only_wake_for_relevant_interfaces() {
+        use super::*;
+        for class in [USB_DEVICE_INTERFACE, USB_HUB_INTERFACE] {
+            for event in [DBT_DEVICEARRIVAL, DBT_DEVICEREMOVECOMPLETE] {
+                assert!(usb_interface_hint(event, DBT_DEVTYP_DEVICEINTERFACE, class));
+            }
+            assert!(!usb_interface_hint(
+                DBT_DEVICEQUERYREMOVE,
+                DBT_DEVTYP_DEVICEINTERFACE,
+                class
+            ));
+            assert!(!usb_interface_hint(
+                DBT_DEVICEARRIVAL,
+                DBT_DEVTYP_VOLUME,
+                class
+            ));
+        }
+        assert!(!usb_interface_hint(
+            DBT_DEVICEARRIVAL,
+            DBT_DEVTYP_DEVICEINTERFACE,
+            windows_sys::core::GUID::from_u128(0)
+        ));
+        unsafe {
+            assert!(!is_usb_interface_hint(DBT_DEVICEARRIVAL, 0));
+            let short = DEV_BROADCAST_HDR {
+                dbch_size: size_of::<DEV_BROADCAST_HDR>() as u32,
+                dbch_devicetype: DBT_DEVTYP_DEVICEINTERFACE,
+                dbch_reserved: 0,
+            };
+            assert!(!is_usb_interface_hint(
+                DBT_DEVICEARRIVAL,
+                &short as *const _ as LPARAM
+            ));
+        }
+    }
     #[test]
     fn guided_display_names_hide_only_the_exact_diagnostic_identity() {
         let monitor = json!({"id":"interface-a", "label":"Philips · interface-a"});

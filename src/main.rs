@@ -1,6 +1,19 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 fn main() {
+    #[cfg(target_os = "windows")]
+    if std::env::args().any(|arg| arg == "--ddc-helper") {
+        match portkey::platform::ddc_helper() {
+            Ok(response) => {
+                println!("{response}");
+                return;
+            }
+            Err(error) => {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
+        }
+    }
     if let Err(error) = run() {
         if std::env::args().any(|arg| arg == "--diagnose") {
             eprintln!("{error}");

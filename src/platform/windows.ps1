@@ -1,11 +1,49 @@
+$scriptClock = [Diagnostics.Stopwatch]::StartNew()
+function Write-PortKeyTiming([string]$stage, [Diagnostics.Stopwatch]$clock) {
+    if ($env:PORTKEY_TIMING -eq '1') {
+        try { [Console]::Error.WriteLine('PORTKEY_TIMING ' + $stage + ' ' + [int64]($clock.ElapsedTicks * 1000000 / [Diagnostics.Stopwatch]::Frequency)) } catch { }
+    }
+}
+function Get-PortKeyHubs {
+    $hubs = @()
+    $devices = @(Get-PnpDevice -PresentOnly -Class USB -ErrorAction Stop)
+    if ($devices.Count -eq 0) { throw 'USB inventory is empty; automation paused' }
+    $seen = @{}
+    foreach ($device in $devices) {
+        if ([string]::IsNullOrWhiteSpace($device.InstanceId) -or $seen.ContainsKey($device.InstanceId)) { throw 'Missing or duplicate USB device identity' }
+        $seen[$device.InstanceId] = $true
+        # Get-PnpDevice already supplies this field from the same device snapshot.
+        $property = $device.CimInstanceProperties['Service']
+        if ($null -eq $property) { throw 'USB device service property is missing' }
+        $service = $property.Value
+        if ($null -ne $service -and $service -isnot [string]) { throw 'USB device service property is invalid' }
+        if ($service -match '^USBHUB(3)?$') {
+            if ($device.Status -ne 'OK') { throw 'USB hub status is uncertain; automation paused' }
+            $locations = @(Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_LocationPaths' -ErrorAction Stop)
+            if ($locations.Count -ne 1 -or $locations[0].InstanceId -ine $device.InstanceId -or $locations[0].KeyName -ne 'DEVPKEY_Device_LocationPaths') { throw 'USB hub location property is missing or ambiguous' }
+            $paths = @($locations[0].Data | Sort-Object)
+            if ($paths.Count -eq 0 -or @($paths | Where-Object { $_ -isnot [string] -or [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) { throw 'USB hub lacks a stable location path' }
+            $hubs += @{ id = 'windows:' + $paths[0].ToLowerInvariant(); label = $device.FriendlyName + ' @ ' + $paths[0] }
+        }
+    }
+    if ($hubs.Count -eq 0) { throw 'No USB root hubs could be enumerated; automation paused' }
+    return $hubs
+}
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+$compileClock = [Diagnostics.Stopwatch]::StartNew()
+try {
 try {
 Add-Type -TypeDefinition @'
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 public static class PortKeyNative {
+    static void Timing(string stage,Stopwatch clock) {
+        if(Environment.GetEnvironmentVariable("PORTKEY_TIMING")!="1")return;
+        try { Console.Error.WriteLine("PORTKEY_TIMING " + stage + " " + ((long)(clock.ElapsedTicks * 1000000.0 / Stopwatch.Frequency)).ToString(System.Globalization.CultureInfo.InvariantCulture)); } catch { }
+    }
     [StructLayout(LayoutKind.Sequential)] struct RECT { public int l,t,r,b; }
     [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)] struct INFO {
         public uint cb; public RECT monitor,work; public uint flags;
@@ -34,6 +72,8 @@ public static class PortKeyNative {
     [DllImport("dxva2.dll")] static extern bool GetVCPFeatureAndVCPFeatureReply(IntPtr monitor,byte code,out uint kind,out uint current,out uint maximum);
     public class Display { public string id; public string label; internal IntPtr handle; }
     public static Display[] Displays() {
+        var clock=Stopwatch.StartNew();
+        try {
         var result=new List<Display>(); string error=null;
         Callback callback=delegate(IntPtr monitor,IntPtr dc,ref RECT rect,IntPtr data) {
             INFO info=new INFO(); info.cb=(uint)Marshal.SizeOf(typeof(INFO));
@@ -51,27 +91,43 @@ public static class PortKeyNative {
         if(!EnumDisplayMonitors(IntPtr.Zero,IntPtr.Zero,callback,IntPtr.Zero)) throw new Exception(error ?? "Monitor enumeration failed");
         if(error!=null)throw new Exception(error);
         return result.ToArray();
+        } finally { Timing("native_display_enumerate",clock); }
     }
     static string Access(string id,uint input,bool write) {
+        var openClock=Stopwatch.StartNew();
+        uint count=0;
+        PHYSICAL[] physical;
+        try {
         var matches=new List<Display>();
         foreach(var d in Displays()) if(String.Equals(d.id,id,StringComparison.Ordinal))matches.Add(d);
         if(matches.Count!=1)throw new Exception("Enrolled display missing or ambiguous; no command sent");
-        uint count;
         if(!GetNumberOfPhysicalMonitorsFromHMONITOR(matches[0].handle,out count)||count!=1)
             throw new Exception("Display does not map to exactly one physical monitor; no command sent");
-        var physical=new PHYSICAL[count];
+        physical=new PHYSICAL[count];
         if(!GetPhysicalMonitorsFromHMONITOR(matches[0].handle,count,physical))throw new Exception("Cannot open enrolled physical monitor");
+        } finally { Timing("exact_display_open",openClock); }
         try {
             if(!write) {
+                var readClock=Stopwatch.StartNew();
+                try {
                 uint readKind,readCurrent,readMaximum;
                 if(!GetVCPFeatureAndVCPFeatureReply(physical[0].handle,0x60,out readKind,out readCurrent,out readMaximum)
                     || readCurrent==0 || readCurrent>255)throw new Exception("DDC input readback unavailable or invalid");
                 return readCurrent.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                } finally { Timing("read_input",readClock); }
             }
-            if(!SetVCPFeature(physical[0].handle,0x60,input))throw new Exception("DDC write failed; monitor outcome unknown");
-            System.Threading.Thread.Sleep(1500);
-            uint kind,current,maximum;
-            return GetVCPFeatureAndVCPFeatureReply(physical[0].handle,0x60,out kind,out current,out maximum) && current==input ? "confirmed" : "sent";
+            var setClock=Stopwatch.StartNew();
+            try {
+                if(!SetVCPFeature(physical[0].handle,0x60,input))throw new Exception("DDC write failed; monitor outcome unknown");
+            } finally { Timing("set_vcp",setClock); }
+            var waitClock=Stopwatch.StartNew();
+            try { System.Threading.Thread.Sleep(1500); }
+            finally { Timing("postwrite_wait",waitClock); }
+            var readbackClock=Stopwatch.StartNew();
+            try {
+                uint kind,current,maximum;
+                return GetVCPFeatureAndVCPFeatureReply(physical[0].handle,0x60,out kind,out current,out maximum) && current==input ? "confirmed" : "sent";
+            } finally { Timing("postwrite_readback",readbackClock); }
         } finally { DestroyPhysicalMonitors(count,physical); }
     }
     public static string Read(string id) { return Access(id,0,false); }
@@ -81,24 +137,20 @@ public static class PortKeyNative {
     }
 }
 '@
+} finally { Write-PortKeyTiming 'add_type' $compileClock }
 if ($env:PORTKEY_MODE -eq 'write') {
     [PortKeyNative]::Write($env:PORTKEY_DISPLAY, [uint32]$env:PORTKEY_INPUT)
 } elseif ($env:PORTKEY_MODE -eq 'read') {
     [PortKeyNative]::Read($env:PORTKEY_DISPLAY)
-} elseif ($env:PORTKEY_MODE -eq 'inventory') {
+} elseif ($env:PORTKEY_MODE -in @('inventory', 'displays')) {
     $hubs = @()
-    $devices = @(Get-PnpDevice -PresentOnly -Class USB -ErrorAction Stop)
-    if ($devices.Count -eq 0) { throw 'USB inventory is empty; automation paused' }
-    foreach ($device in $devices) {
-        $service = (Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_Service' -ErrorAction Stop).Data
-        if ($service -match '^USBHUB(3)?$') {
-            if ($device.Status -ne 'OK') { throw 'USB hub status is uncertain; automation paused' }
-            $paths = @((Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_LocationPaths' -ErrorAction Stop).Data | Sort-Object)
-            if ($paths.Count -eq 0 -or [string]::IsNullOrWhiteSpace($paths[0])) { throw 'USB hub lacks a stable location path' }
-            $hubs += @{ id = 'windows:' + $paths[0].ToLowerInvariant(); label = $device.FriendlyName + ' @ ' + $paths[0] }
-        }
+    if ($env:PORTKEY_MODE -eq 'inventory') {
+        $usbClock = [Diagnostics.Stopwatch]::StartNew()
+        try { $hubs = @(Get-PortKeyHubs) }
+        finally { Write-PortKeyTiming 'usb_enumerate' $usbClock }
     }
-    if ($hubs.Count -eq 0) { throw 'No USB root hubs could be enumerated; automation paused' }
+    $displayClock = [Diagnostics.Stopwatch]::StartNew()
+    try {
     # WMI names are cosmetic only; join the entire PnP instance, never a model/VID prefix.
     $monitorNames = @(Get-CimInstance -Namespace root/wmi -ClassName WmiMonitorID -ErrorAction SilentlyContinue)
     $displays = @([PortKeyNative]::Displays() | ForEach-Object {
@@ -116,9 +168,10 @@ if ($env:PORTKEY_MODE -eq 'write') {
         }
         @{id=$display.id;label=$label + ' · ' + $display.id}
     })
+    } finally { Write-PortKeyTiming 'names_display_enumerate' $displayClock }
     @{ displays = $displays; hubs = @($hubs) } | ConvertTo-Json -Depth 5 -Compress
 } else { throw 'Invalid hardware helper mode' }
 } catch {
     [Console]::Error.WriteLine($_.Exception.Message)
     exit 1
-}
+} finally { Write-PortKeyTiming 'script_total' $scriptClock }

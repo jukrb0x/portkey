@@ -16,3 +16,7 @@ work/
 # Local Rust toolchain and build output
 .tools/
 target/
+
+# Python tooling cache
+__pycache__/
+*.py[cod]

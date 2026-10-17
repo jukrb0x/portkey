@@ -1,0 +1,206 @@
+<NavigationView xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:Name="Navigation" PaneDisplayMode="Auto" OpenPaneLength="204" IsBackButtonVisible="Collapsed" IsSettingsVisible="False" IsPaneToggleButtonVisible="True">
+  <NavigationView.MenuItems>
+    <NavigationViewItem x:Name="NavOverview" Icon="Home" />
+    <NavigationViewItem x:Name="NavProfiles" Icon="World" />
+    <NavigationViewItem x:Name="NavSetup" Icon="Setting" />
+    <NavigationViewItem x:Name="NavDiagnostics" Icon="Help" />
+  </NavigationView.MenuItems>
+  <NavigationView.PaneFooter>
+    <StackPanel Spacing="12" Margin="16,12,16,20">
+      <ComboBox x:Name="Language" HorizontalAlignment="Stretch">
+        <x:String>English</x:String>
+        <x:String>简体中文</x:String>
+      </ComboBox>
+      <TextBlock x:Name="TrayHint" TextWrapping="Wrap" FontSize="12" Opacity="0.6" />
+      <Button x:Name="Quit" HorizontalAlignment="Stretch" />
+    </StackPanel>
+  </NavigationView.PaneFooter>
+  <Grid Padding="36,28">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
+    <StackPanel Spacing="8">
+      <InfoBar x:Name="ActionError" IsOpen="False" Severity="Error" IsClosable="True" Margin="0,0,0,12" />
+      <InfoBar x:Name="PersistentWarning" IsOpen="False" Severity="Warning" IsClosable="False" Margin="0,0,0,12" />
+    </StackPanel>
+    <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Spacing="20" MaxWidth="790" HorizontalAlignment="Stretch">
+        <StackPanel x:Name="OverviewPage" Spacing="20">
+          <TextBlock x:Name="OverviewTitle" FontSize="30" FontWeight="SemiBold" />
+          <StackPanel x:Name="BlockedWelcome" Spacing="16" Visibility="Collapsed">
+            <TextBlock x:Name="BlockedTitle" FontSize="26" FontWeight="SemiBold" TextWrapping="Wrap" />
+            <TextBlock x:Name="BlockedDetail" TextWrapping="Wrap" />
+            <Button x:Name="BlockedDiagnostics" />
+          </StackPanel>
+          <StackPanel x:Name="EmptyWelcome" Spacing="18" Margin="0,12,0,0">
+            <SymbolIcon Symbol="Switch" HorizontalAlignment="Left" Width="48" Height="48" />
+            <TextBlock x:Name="EmptyTitle" FontSize="26" FontWeight="SemiBold" TextWrapping="Wrap" />
+            <TextBlock x:Name="EmptyPurpose" FontSize="15" TextWrapping="Wrap" MaxWidth="560" HorizontalAlignment="Left" />
+            <Button x:Name="OverviewSetup" Style="{StaticResource AccentButtonStyle}" />
+          </StackPanel>
+          <StackPanel x:Name="ProfileSelectionSummary" Spacing="8" Visibility="Collapsed">
+            <TextBlock x:Name="SelectionMode" FontSize="18" FontWeight="SemiBold" />
+            <TextBlock x:Name="ActiveProfileLine" TextWrapping="Wrap" />
+            <TextBlock x:Name="SelectionReason" TextWrapping="Wrap" Opacity="0.75" />
+            <StackPanel Orientation="Horizontal" Spacing="12">
+              <Button x:Name="OverviewProfiles" />
+              <Button x:Name="OverviewRestoreAuto" />
+            </StackPanel>
+          </StackPanel>
+          <TextBlock x:Name="ProfileHeading" FontSize="18" FontWeight="SemiBold" />
+          <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="12" Padding="24" x:Name="OperationalCard">
+            <StackPanel Spacing="15">
+              <TextBlock x:Name="EffectiveState" FontSize="22" FontWeight="SemiBold" />
+              <TextBlock x:Name="RuntimeStatus" TextWrapping="Wrap" />
+              <ToggleSwitch x:Name="Automatic" />
+              <TextBlock x:Name="UsbState" TextWrapping="Wrap" Opacity="0.7" />
+            </StackPanel>
+          </Border>
+          <Grid x:Name="DestinationCards" ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Border CornerRadius="12" Padding="22" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+              <StackPanel Spacing="12">
+                <TextBlock x:Name="LocalName" FontSize="20" FontWeight="SemiBold" />
+                <TextBlock x:Name="ThisBadge" Opacity="0.65" />
+                <Button x:Name="SwitchLocal" HorizontalAlignment="Stretch" />
+              </StackPanel>
+            </Border>
+            <Border Grid.Column="1" CornerRadius="12" Padding="22" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+              <StackPanel Spacing="12">
+                <TextBlock x:Name="RemoteName" FontSize="20" FontWeight="SemiBold" />
+                <TextBlock x:Name="PeerUnknown" Opacity="0.65" />
+                <Button x:Name="SwitchRemote" HorizontalAlignment="Stretch" />
+              </StackPanel>
+            </Border>
+          </Grid>
+          <StackPanel x:Name="OperationalContext" Spacing="12">
+            <TextBlock x:Name="LocalSemantics" TextWrapping="Wrap" Opacity="0.7" />
+            <TextBlock x:Name="ModeSummary" TextWrapping="Wrap" />
+            <TextBlock x:Name="EvidenceSummary" TextWrapping="Wrap" />
+          </StackPanel>
+          <Button x:Name="ResumeDraft" />
+        </StackPanel>
+        <StackPanel x:Name="ProfilesPage" Visibility="Collapsed" Spacing="18">
+          <TextBlock x:Name="ProfilesTitle" FontSize="30" FontWeight="SemiBold" />
+          <TextBlock x:Name="ProfilesHint" TextWrapping="Wrap" />
+          <TextBlock x:Name="ProfilesSelectionMode" FontSize="18" FontWeight="SemiBold" />
+          <TextBlock x:Name="ProfilesActive" TextWrapping="Wrap" />
+          <TextBlock x:Name="ProfilesSelectionReason" TextWrapping="Wrap" />
+          <TextBlock x:Name="ViewingLabel" FontWeight="SemiBold" />
+          <ComboBox x:Name="ProfilesList" HorizontalAlignment="Stretch" />
+          <StackPanel Spacing="10" HorizontalAlignment="Left">
+            <Button x:Name="UseProfile" Style="{StaticResource AccentButtonStyle}" MaxWidth="560">
+              <TextBlock x:Name="UseProfileLabel" TextWrapping="Wrap" />
+            </Button>
+            <Button x:Name="RestoreAuto" />
+          </StackPanel>
+          <TextBlock x:Name="ProfileLocalOnly" TextWrapping="Wrap" Opacity="0.75" />
+          <TextBlock x:Name="ViewedProfileState" TextWrapping="Wrap" />
+          <StackPanel x:Name="ProfileEditor" Spacing="16" Visibility="Collapsed">
+          <TextBlock x:Name="ProfileDetails" TextWrapping="Wrap" />
+          <TextBox x:Name="SavedProfileName" MaxLength="80" />
+          <TextBox x:Name="SavedLocalName" MaxLength="80" />
+          <TextBox x:Name="SavedRemoteName" MaxLength="80" />
+          <ComboBox x:Name="SavedMode" HorizontalAlignment="Stretch" />
+          <ComboBox x:Name="SavedController" HorizontalAlignment="Stretch" />
+          <ComboBox x:Name="SavedRole" HorizontalAlignment="Stretch" />
+          <ComboBox x:Name="SavedOs" HorizontalAlignment="Stretch" />
+          <Button x:Name="SaveNames" />
+          </StackPanel>
+          <Button x:Name="ProfilesNew" />
+        </StackPanel>
+        <StackPanel x:Name="SetupPage" Visibility="Collapsed" Spacing="18">
+          <TextBlock x:Name="SetupTitle" FontSize="30" FontWeight="SemiBold" />
+          <TextBlock x:Name="SetupIntro" TextWrapping="Wrap" />
+          <TextBlock x:Name="SetupProgress" FontSize="14" FontWeight="SemiBold" />
+          <InfoBar x:Name="SetupPhase" IsOpen="True" IsClosable="False" Severity="Informational" />
+          <TextBlock x:Name="RecoveryHint" TextWrapping="Wrap" />
+          <StackPanel x:Name="SetupIdentity" Spacing="16">
+            <Expander x:Name="JoinExpander" HorizontalAlignment="Stretch">
+              <StackPanel Spacing="12">
+                <TextBox x:Name="JoinRecord" AcceptsReturn="True" MaxHeight="100" TextWrapping="Wrap" MaxLength="4096" />
+                <Button x:Name="JoinWorkspace" />
+              </StackPanel>
+            </Expander>
+            <TextBox x:Name="WorkspaceName" MaxLength="80" />
+            <Grid ColumnSpacing="12">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <TextBox x:Name="DraftLocalName" MaxLength="80" />
+              <TextBox x:Name="DraftRemoteName" Grid.Column="1" MaxLength="80" />
+            </Grid>
+            <ComboBox x:Name="LocalRole" HorizontalAlignment="Stretch" />
+            <ComboBox x:Name="RemoteOs" HorizontalAlignment="Stretch" />
+            <ComboBox x:Name="Mode" HorizontalAlignment="Stretch" />
+            <ComboBox x:Name="SingleController" HorizontalAlignment="Stretch" />
+            <Button x:Name="SaveDraftNames" />
+          </StackPanel>
+          <StackPanel x:Name="SetupMonitor" Spacing="16">
+            <TextBlock x:Name="MonitorStep" FontSize="20" FontWeight="SemiBold" />
+            <ComboBox x:Name="DisplaysList" HorizontalAlignment="Stretch" />
+            <Button x:Name="SelectDisplay" />
+          </StackPanel>
+          <StackPanel x:Name="SetupUsb" Spacing="16">
+            <TextBlock x:Name="UsbStep" FontSize="20" FontWeight="SemiBold" />
+            <Button x:Name="DetectUsb" />
+          </StackPanel>
+          <StackPanel x:Name="SetupInputs" Spacing="16">
+            <TextBlock x:Name="InputsStep" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock x:Name="InputsHint" TextWrapping="Wrap" />
+            <Button x:Name="ReadLocal" />
+            <Button x:Name="ReadRemote" />
+            <StackPanel x:Name="DualExchange" Spacing="12">
+              <TextBlock x:Name="ExchangeHint" TextWrapping="Wrap" />
+              <TextBox x:Name="LocalRecord" IsReadOnly="True" AcceptsReturn="True" MaxHeight="100" TextWrapping="Wrap" />
+              <Button x:Name="CopyRecord" />
+              <TextBox x:Name="PeerRecord" AcceptsReturn="True" MaxHeight="130" TextWrapping="Wrap" MaxLength="4096" />
+              <Button x:Name="PreviewRecord" />
+              <TextBlock x:Name="PeerPreview" TextWrapping="Wrap" />
+              <CheckBox x:Name="PeerBindingConfirmed" />
+              <Button x:Name="ConfirmRecord" />
+            </StackPanel>
+          </StackPanel>
+          <StackPanel x:Name="SetupEvidence" Spacing="16">
+            <TextBlock x:Name="QualifyStep" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock x:Name="QualifyHint" TextWrapping="Wrap" />
+            <CheckBox x:Name="ObservedLocal" />
+            <CheckBox x:Name="ObservedRemote" />
+            <CheckBox x:Name="PeerPaused" />
+            <TextBox x:Name="EvidenceNote" AcceptsReturn="True" MaxLength="500" />
+            <Button x:Name="RecordEvidence" />
+          </StackPanel>
+          <StackPanel x:Name="SetupFinish" Spacing="16">
+            <TextBlock x:Name="SetupSummary" TextWrapping="Wrap" />
+            <StackPanel Orientation="Horizontal" Spacing="12">
+              <Button x:Name="FinishOff" />
+              <Button x:Name="FinishEnable" Style="{StaticResource AccentButtonStyle}" />
+            </StackPanel>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <Button x:Name="SetupBack" />
+            <Button x:Name="SetupNext" />
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <Button x:Name="FinishLater" />
+            <Button x:Name="CancelDraft" />
+          </StackPanel>
+        </StackPanel>
+        <StackPanel x:Name="DiagnosticsPage" Visibility="Collapsed" Spacing="18">
+          <TextBlock x:Name="DiagnosticsTitle" FontSize="30" FontWeight="SemiBold" />
+          <TextBlock x:Name="DiagnosticsHint" TextWrapping="Wrap" />
+          <Button x:Name="CollectDiagnostics" />
+          <TextBox x:Name="DiagnosticsPreview" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="270" />
+          <Button x:Name="CopyDiagnostics" />
+          <Button x:Name="ExportDiagnostics" />
+          <Button x:Name="Refresh" />
+        </StackPanel>
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</NavigationView>

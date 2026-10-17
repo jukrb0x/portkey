@@ -1,4 +1,6 @@
-# PortKey implementation record
+# Historical Swift implementation record
+
+> Historical record: the SwiftPM controller/build path described here is retired. See [current product instructions](../README.md) and the [implementation brief](IMPLEMENTATION-BRIEF.md) for the Rust-backed native apps. Earlier physical evidence applies only to its recorded runtime and hardware.
 
 This record preserves the implemented plan and the limits of its acceptance evidence. The [implementation brief](IMPLEMENTATION-BRIEF.md) records current scope; the [design](design.md) describes the product. Completed items below refer to the original native-app delivery, with later changes recorded separately.
 

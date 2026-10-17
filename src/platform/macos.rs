@@ -86,24 +86,99 @@ pub fn inventory() -> Result<Inventory, String> {
         hubs: usb_inventory()?,
     })
 }
+struct CommandTrace {
+    invocation: u64,
+    operation: &'static str,
+    input: Option<u8>,
+    target: &'static str,
+    started: Instant,
+}
+impl CommandTrace {
+    fn new(operation: &'static str, input: Option<u8>, target: &'static str) -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        Self {
+            invocation: NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            operation,
+            input,
+            target,
+            started: Instant::now(),
+        }
+    }
+    fn record(
+        &self,
+        outcome: &'static str,
+        exit_code: Option<i32>,
+        duration: Duration,
+        input: Option<u8>,
+    ) {
+        crate::timing::command_event(crate::timing::CommandEvent {
+            invocation: self.invocation,
+            operation: self.operation,
+            outcome,
+            input,
+            target: self.target,
+            exit_code,
+            duration: Some(duration),
+        });
+    }
+    fn run(&self, command: &mut Command) -> Result<String, String> {
+        run_observed(
+            command,
+            Duration::from_secs(5),
+            |outcome, code, duration| self.record(outcome, code, duration, self.input),
+        )
+    }
+}
 pub fn read_input(display_id: &str) -> Result<u8, String> {
-    require_display(&displays()?, display_id)?;
-    let output = run(
-        Command::new(helper()?).args(["display", display_id, "get", "input"]),
-        Duration::from_secs(5),
-    )?;
-    parse_input(&output)
+    let trace = CommandTrace::new("get_input", None, "current");
+    let path = (|| {
+        require_display(&displays()?, display_id)?;
+        helper()
+    })()
+    .inspect_err(|_| {
+        trace.record("prevalidation_error", None, trace.started.elapsed(), None);
+    })?;
+    let output = trace.run(Command::new(path).args(["display", display_id, "get", "input"]))?;
+    let input = parse_input(&output);
+    trace.record(
+        if input.is_ok() {
+            "readback_ok"
+        } else {
+            "readback_error"
+        },
+        None,
+        trace.started.elapsed(),
+        input.as_ref().ok().copied(),
+    );
+    input
 }
 pub fn set_input(config: &Config, input: u8) -> Result<WriteOutcome, String> {
-    config.validate()?;
-    if config.platform != "macos" || ![config.local_input, config.remote_input].contains(&input) {
-        return Err("Invalid platform or unenrolled input".into());
-    }
-    require_display(&displays()?, &config.display_id)?;
-    run(
-        Command::new(helper()?).args(write_args(&config.display_id, input)),
-        Duration::from_secs(5),
-    )?;
+    let target = if input == config.local_input {
+        "local"
+    } else if input == config.remote_input {
+        "remote"
+    } else {
+        "unenrolled"
+    };
+    let trace = CommandTrace::new("set_input", Some(input), target);
+    let path = (|| {
+        config.validate()?;
+        if config.platform != "macos" || ![config.local_input, config.remote_input].contains(&input)
+        {
+            return Err("Invalid platform or unenrolled input".into());
+        }
+        require_display(&displays()?, &config.display_id)?;
+        helper()
+    })()
+    .inspect_err(|_| {
+        trace.record(
+            "prevalidation_error",
+            None,
+            trace.started.elapsed(),
+            Some(input),
+        );
+    })?;
+    trace.run(Command::new(path).args(write_args(&config.display_id, input)))?;
     // A successful set reports transport completion, not a verified input change.
     Ok(WriteOutcome::SentUnverified(
         "DDC command sent; confirm the display changed inputs".into(),
@@ -195,6 +270,24 @@ fn matching_empty(status: i32, iterator: u32) -> Result<bool, String> {
     Ok(iterator == 0)
 }
 fn usb_inventory() -> Result<Vec<Hub>, String> {
+    retry_usb_snapshot(usb_snapshot)
+}
+fn retry_usb_snapshot(
+    mut scan: impl FnMut() -> Result<Vec<Hub>, String>,
+) -> Result<Vec<Hub>, String> {
+    for attempt in 0..3 {
+        match scan() {
+            Err(error) if error == "USB inventory changed during enumeration" && attempt < 2 => {
+                // Discard the invalid iterator completely. Never publish a partial snapshot.
+                crate::timing::event("usb_snapshot_retry", "macos", None, Some(attempt + 1));
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            result => return result,
+        }
+    }
+    unreachable!("last attempt returns its result")
+}
+fn usb_snapshot() -> Result<Vec<Hub>, String> {
     unsafe {
         let matching = IOServiceMatching(c"IOUSBHostDevice".as_ptr());
         if matching.is_null() {
@@ -346,6 +439,35 @@ fn walk(node: &Value, parent: Option<(u64, u64, u64)>, hubs: &mut Vec<Hub>) -> R
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn invalidated_usb_snapshot_restarts_but_other_errors_fail_closed() {
+        let mut calls = 0;
+        let result = super::retry_usb_snapshot(|| {
+            calls += 1;
+            if calls == 1 {
+                Err("USB inventory changed during enumeration".into())
+            } else {
+                Ok(Vec::new())
+            }
+        });
+        assert!(result.unwrap().is_empty());
+        assert_eq!(calls, 2);
+        let mut calls = 0;
+        assert!(super::retry_usb_snapshot(|| {
+            calls += 1;
+            Err("Duplicate USB topology identity".into())
+        })
+        .is_err());
+        assert_eq!(calls, 1);
+        let mut calls = 0;
+        assert!(super::retry_usb_snapshot(|| {
+            calls += 1;
+            Err("USB inventory changed during enumeration".into())
+        })
+        .is_err());
+        assert_eq!(calls, 3);
+    }
+
     use super::*;
     #[test]
     fn null_iterator_is_empty_only_after_success() {

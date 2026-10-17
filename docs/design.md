@@ -1,4 +1,6 @@
-# PortKey design
+# Historical Swift product design
+
+> Historical record: the SwiftPM controller/build path described here is retired. See [current product instructions](../README.md) and the [implementation brief](IMPLEMENTATION-BRIEF.md) for the Rust-backed native apps. Earlier physical evidence applies only to its recorded runtime and hardware.
 
 ## Scope and evidence
 

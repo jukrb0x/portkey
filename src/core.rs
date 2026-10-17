@@ -214,11 +214,33 @@ impl Config {
 }
 fn valid_hub_id(platform: &str, id: &str) -> bool {
     if platform == "windows" {
-        return id.starts_with("windows:")
-            && id.contains("#usb(")
-            && id.ends_with(')')
-            && id == id.to_ascii_lowercase()
-            && !id.chars().any(char::is_whitespace);
+        let Some(path) = id.strip_prefix("windows:") else {
+            return false;
+        };
+        if id != id.to_ascii_lowercase() || id.chars().any(char::is_whitespace) {
+            return false;
+        }
+        if path.starts_with("acpi(") {
+            let components: Vec<_> = path.split('#').collect();
+            // ACPI location paths name the host controller, root hub and downstream port.
+            return components.first() == Some(&"acpi(_sb_)")
+                && components.iter().all(|component| {
+                    component
+                        .strip_prefix("acpi(")
+                        .and_then(|name| name.strip_suffix(')'))
+                        .is_some_and(|name| {
+                            name.len() == 4
+                                && name.bytes().all(|b| {
+                                    b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'
+                                })
+                        })
+                })
+                && components
+                    .iter()
+                    .position(|component| *component == "acpi(rhub)")
+                    .is_some_and(|root| root >= 2 && root + 1 < components.len());
+        }
+        return path.contains("#usb(") && path.ends_with(')');
     }
     let fields: Vec<_> = id.split(':').collect();
     let root = fields.len() == 6 && fields[4] == "root";
@@ -339,7 +361,7 @@ impl Policy {
             self.deadline = Some(now_ms.saturating_add(300));
         }
         if value == Ownership::Absent && self.established {
-            self.deadline = Some(now_ms.saturating_add(700));
+            self.deadline = Some(now_ms.saturating_add(300));
         }
     }
     pub fn tick(&mut self, now_ms: u64) -> Option<Request> {
@@ -459,13 +481,31 @@ mod tests {
         let mut p = owned();
         let previous = p.request().unwrap();
         p.observe(Ownership::Absent, 400);
-        assert!(p.tick(1099).is_none());
-        let next = p.tick(1100).unwrap();
+        assert!(p.tick(699).is_none());
+        let next = p.tick(700).unwrap();
         assert_eq!(next.target, Target::Remote);
         assert!(next.generation > previous.generation);
         p.observe(Ownership::Partial, 1200);
         assert!(p.request().is_none());
     }
+    #[test]
+    fn departure_bounce_restarts_full_settle_and_partial_never_dispatches() {
+        let mut p = owned();
+        p.observe(Ownership::Absent, 400);
+        assert!(p.tick(699).is_none());
+        p.observe(Ownership::Partial, 699);
+        assert!(p.tick(2000).is_none());
+        p.observe(Ownership::Absent, 2100);
+        assert!(p.tick(2399).is_none());
+        // A return immediately before the deadline cancels departure.
+        p.observe(Ownership::Owned, 2399);
+        assert!(p.tick(2400).is_none());
+        p.observe(Ownership::Absent, 2500);
+        p.observe(Ownership::Absent, 2799);
+        assert!(p.tick(2799).is_none());
+        assert_eq!(p.tick(2800).unwrap().target, Target::Remote);
+    }
+
     #[test]
     fn unstable_arrival_does_not_establish_ownership() {
         let mut p = Policy::new();
@@ -608,8 +648,8 @@ mod config_tests {
             assert!(destination.tick(now + 1299).is_none());
             let arrival = destination.tick(now + 1300).unwrap();
             assert_eq!(arrival.target, Target::Local);
-            assert!(source.tick(now + 1699).is_none());
-            let departure = source.tick(now + 1700).unwrap();
+            assert!(source.tick(now + 1299).is_none());
+            let departure = source.tick(now + 1300).unwrap();
             assert_eq!(departure.target, Target::Remote);
             assert_eq!(from.input(departure.target), to.input(arrival.target));
             std::mem::swap(&mut source, &mut destination);
@@ -668,6 +708,71 @@ mod config_tests {
         assert!(departure.generation > stale_arrival.generation);
         assert_eq!(mac.input(correction.target), 5);
         assert_eq!(windows.input(departure.target), 5);
+    }
+    fn acpi_windows_config() -> Config {
+        let (_, mut config) = mirrored_configs();
+        config.hubs[0].id =
+            "windows:acpi(_sb_)#acpi(pc01)#acpi(xhc1)#acpi(rhub)#acpi(hs02)#acpi(hub1)".into();
+        config.hubs[1].id = "windows:acpi(_sb_)#acpi(pc01)#acpi(xhc1)#acpi(rhub)#acpi(ss02)".into();
+        config
+    }
+    #[test]
+    fn windows_acpi_topology_validates_persists_and_matches_exactly() {
+        let config = acpi_windows_config();
+        assert!(config.validate().is_ok());
+        assert_eq!(config.observe(&config.hubs), Ownership::Owned);
+        let mut relocated = config.hubs.clone();
+        relocated[0].id = relocated[0].id.replace("pc01", "pc02");
+        assert_eq!(config.observe(&relocated), Ownership::Partial);
+        let path = temp();
+        config.save(&path).unwrap();
+        assert_eq!(Config::load(&path).unwrap(), Some(config));
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+    #[test]
+    fn windows_acpi_rejects_incomplete_malformed_and_noncanonical_paths() {
+        for path in [
+            "acpi(_sb_)",
+            "acpi(_sb_)#acpi(rhub)#acpi(hs02)",
+            "acpi(_sb_)#acpi(xhc1)#acpi(rhub)",
+            "acpi(_sb_)#acpi(xhc1)#acpi(hs02)",
+            "acpi(_sb_)#acpi(xhc1)#acpi(rhub)#acpi(hs02)junk",
+            "acpi(_sb_)#acpi(xhc1)#acpi(rhub)#acpi()",
+            "acpi(_sb_)#acpi(xhc1)#acpi(rhub)#acpi(hs 2)",
+            "acpi(_sb_)#acpi(xhc1)#acpi(rhub)#acpi(hs02)#",
+            "acpi(_sb_)#acpi(xhc1)#acpi(rhub)#acpi(hs02)#vid_1234",
+            "acpi(_sb_)#acpi(XHC1)#acpi(rhub)#acpi(hs02)",
+            "acpi(_sb_)#acpi(xhc1)#acpi(rhub)#acpi(hs02\0)",
+        ] {
+            let mut config = acpi_windows_config();
+            config.hubs[0].id = format!("windows:{path}");
+            assert!(
+                config.validate().is_err(),
+                "accepted malformed path {path:?}"
+            );
+        }
+    }
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_guided_acpi_enrollment_can_save_profile() {
+        let config = acpi_windows_config();
+        let mut setup = crate::setup::Setup::new(config.display_id.clone(), "Test desk".into());
+        setup.start_usb(&config.hubs).unwrap();
+        setup.observe(&[], 0);
+        setup.observe(&[], 3000);
+        setup.observe(&config.hubs, 6000);
+        setup.observe(&config.hubs, 9000);
+        setup.input_result(Ok(7));
+        setup.peer_code(&crate::setup::input_code(5)).unwrap();
+        let enrolled = setup.config("en").unwrap();
+        let mut profiles = crate::profiles::Profiles::default();
+        profiles.upsert(Some("Test desk".into()), enrolled).unwrap();
+        let path = temp();
+        profiles.save(&path).unwrap();
+        let saved = crate::profiles::Profiles::load(&path).unwrap();
+        assert_eq!(saved.profiles[0].config.hubs, config.hubs);
+        assert!(!saved.profiles[0].config.automatic);
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
     #[test]
     fn refuses_unsupported_version_and_incomplete_enrollment() {

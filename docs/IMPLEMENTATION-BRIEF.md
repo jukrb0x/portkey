@@ -1,5 +1,66 @@
 # Implementation brief — 2026-10-16
 
+## Native product delivery — authorized 2026-10-18
+
+The user now authorizes implementation and local deployment of a complete native product, prioritizing design quality over speed. Retain the repaired Rust runtime; replace presentation with SwiftUI plus AppKit integration on macOS and C++/WinRT + XAML WinUI 3 on Windows. Support two named computers, single/dual installation semantics, per-display workspaces and resumable setup with honest qualification provenance. Existing Rust automation preferences survive metadata migration; new/legacy Swift imports remain off. Controls and peer status remain explicitly local/unknown without a network protocol. No new physical switching or sleep tests. Retire historical Swift business logic only after replacement and migration safety. This supersedes historical frontend choices below.
+
+## Native Windows DDC subprocess and lower-level USB investigation — 2026-10-18
+
+Native subprocess deployed and its desktop timing session verified; configuration unchanged. Read-only comparison measured118ms native vs389ms PowerShell with identical unavailable readback outcomes. This is transport overhead evidence only. Static parent-port diagnostics distinguish connected/disconnected controls, but earlier transition detection is unproven and is not used for ownership. See latest verification record.
+
+Latest ordinary-use events confirm fast native USB polling and specific interface notifications are running, yet Windows still reports owned then partial for seconds after Mac arrival. Investigate parent-hub physical port status read-only before changing ownership policy; never treat missing or failed diagnostic mapping as absence. Replace only Windows DDC read/write PowerShell transport with a native child process to remove measured process/compilation overhead. Preserve exact enrolled interface resolution, unique physical-monitor requirement, parent timeout/output bounds, post-write wait/readback semantics and hardware-result uncertainty. Cosmetic UI discovery may remain PowerShell. No additional physical switching trial is required for implementation; deploy only after native subprocess read-only smoke and regression checks.
+
+## Automated display comparison result — 2026-10-18
+
+Two bounded automated handoff arms ran with both apps stopped and verifiedWindows-input7 baselines. Windows-only set5 produced1.455s WindowServer hotplug-out→in; Mac-first thenWindows set5 produced1.415s. Both ended with Mac readback5 and same display mode. B's pre-Windows Mac read was null, so it does not isolate an already-selected-input duplicate; extra diagnostic read and one sample per arm limit inference. The logged reconfiguration occurs without cross-host duplicate writes in A. Both latest apps restored with configuration hashes unchanged. Do not claim all duplicate-command effects excluded, or change display modes/firmware settings speculatively.
+
+## Remaining departure and display-link latency — approved 2026-10-18
+
+Deployed Windows USBEvents: both interface subscriptions verified; live fallback cadence approximately262ms including scan/scheduling. Mac event-driven build remains running unchanged. Configurations preserved; no fresh physical switching acceptance claimed.
+
+The user requests continued diagnosis and direct deployment of evidenced fixes without repeated manual trials. Latest trace contains a 2.1s gap between a Windows owned USB snapshot and a partial snapshot before notification; native scan cost is only milliseconds. Shorten only the independent native Windows USB fallback to250ms with exact remaining-deadline waits; add specific USB interface arrival/removal hints while retaining full fresh topology/status validation. Do not infer absence from a notification. Display-link logs show a real hotplug-out/in interval rather than a PortKey sleep:1.495s between WindowServer hotplug states and roughly0.9s more until AppKit reports active. This does not identify firmware vs driver cause or establish visible-picture timing. Four bounded later same-input Mac writes produced no further logged reconfiguration, so unconditional extra DDC reads are not justified as a proven latency repair.
+
+## Both-host event-driven deployment — approved 2026-10-18
+
+Deployment completed: Mac native notifications report ready; Windows native pre-command validation is running, with two-display identity parity confirmed in a read-only desktop probe. Both saved configurations are unchanged and both new timing sessions verified. Previous comparison/staging holds below are historical. No new physical switching acceptance is claimed.
+
+
+The user now explicitly requests Mac USB event observation and deployment of both latest builds, without more manual switching. This supersedes the Windows-only comparison hold. Register native IOKit arrival/removal hints on the main run loop, drain/release iterators, wake existing fresh discovery, retain two-second polling fallback and exact topology validation. Hints do not establish ownership. Deploy native Windows pre-command display validation plus 300ms established-departure settling; preserve configuration and rotating diagnostics. Verify actual running binaries and sessions, not just staged files. Both hosts remain independent bidirectional controllers; no network coordination or cross-host deduplication is introduced. Physical latency improvements require subsequent evidence and must not be inferred from passing tests.
+
+## Windows-only comparison result and restoration — 2026-10-18
+
+User confirms Windows-only could not switch picture from Mac to Windows. Windows logged fresh owned USB at 02:03:01.045, local write at 01.974 and unverified completion at 03.957. Therefore this was a dispatched but visually failed command, consistent with inactive-input DDC limitations; it does not prove a universal firmware restriction or settle duplicate-command latency. Mac optimized AppKit build was then restored with timing enabled and unchanged profile hash. Windows still runs TraceRotation; native prewrite optimization remains staged there.
+
+## Current Windows-only comparison — 2026-10-18
+
+The user reiterated that a Windows-only comparison was requested and should establish whether inactive-input DDC requires both hosts. Mac Rust was gracefully quit; legacy Swift is also stopped. Windows TraceRotation remains unchanged. Do not restart Mac or replace Windows during this comparison without preserving this experimental condition. Pre-command optimizations are built/staged (300ms departure debounce and native Windows fresh display validation), but not deployed; no measured improvement is claimed. Both-host operation currently means independent bidirectional controllers with no network coordination or cross-host deduplication; single Mac operation remains supported on qualified hardware.
+
+## Current latency work and hardware-test boundary — 2026-10-18
+
+The user has explicitly requested no more repeated manual switching trials. Continue with existing traces, read-only diagnostics and deterministic regression tests; do not request another foreground round trip unless the user independently reopens that work. They want causes established before an architecture/backend rewrite. Both automatic directions have been visually confirmed, but Windows-to-Mac latency remains unacceptable and the device-event trial was approximately 17 seconds. After the native USB update the user reported roughly 7–8 seconds; the native process was verified, but the prior timing file was already capped and did not capture this trial.
+
+Existing traces identify redundant Windows Service queries (removed) and an internal scheduler defect: ownership-change command cancellation also invalidated newer in-flight discovery. Separate inventory freshness revisions from command generations; preserve full invalidation for setup/lifecycle/config changes. Do not claim a hardware speed improvement from tests alone. See docs/plans/switch-latency.md and docs/RUST-VERIFICATION.md. No server/client architecture change is approved by inference from the latency problem.
+
+The follow-up audit also confirmed completed inventory was withheld behind DDC write/readback. Publish fresh scans before transport, preserving revision/lifecycle gates and command validation. A real worker barrier test reproduces the old delay without hardware. Full inventory scans and mandatory pre-write discovery remain measured costs; existing traces do not record physical button or picture timestamps. An offline analyzer in `scripts/analyze-timing.py` makes stage accounting reproducible.
+
+The subsequent TraceRotation round trip is recorded: user estimates seven seconds outbound and two to three seconds returning. Notification-triggered USB scans took 2.3–4.2ms; native write return was bounded at 3.306–3.559s / 2.431–2.671s after the first Windows notification, with no queue bottleneck or retries. This excludes the post-write wait and cannot locate unmeasured button-to-notification or command-to-picture time. See the latest verification entry; do not keep attributing this trial to the two-second fallback.
+
+Mac unified logs subsequently recovered PortKey-attributed m1ddc activity and an external-display inactive→active reconfiguration interval. Conditional current-clock alignment puts Windows command return about 2.16–2.92 seconds before Mac reports the display active. Mac helper arguments/results were not logged; duplicate successful commands and visual frame timing remain unproven. The later Mac helper activity follows activation and cannot explain the earlier inactive interval. No restart or new switching trial was performed.
+
+Latest detailed capture confirms local reassertions after transient display-profile disappearance, not evidence of opposite-target contention. A final user-observed failed handoff has Mac inventory error→unknown/absent with no departure write and an unverified Windows local write. A bounded fresh-snapshot retry for explicit IOKit iterator invalidation is staged and tested; it does not preserve stale ownership or weaken unknown-state handling. Historical Swift fallback was found running and gracefully quit; its logs contain no writes in the captured interval.
+
+## Detailed Mac command logging — approved 2026-10-18
+
+The user authorizes detailed Mac command/result logging and one restart to enable it, without repeated manual switching. Record each actual helper invocation, set/get operation, numeric input, local/remote target, UTC and monotonic timing, exit status and categorized failure. Preserve exact enrollment validation and transport-only success semantics; do not add readbacks or hardware writes for diagnostics. Keep device IDs and raw output outside the log. Maintain both hosts for the initial observation; a Windows-only comparison is a separate optional condition, not evidence already collected.
+
+## Rotating latency logs — approved 2026-10-18
+
+The user requests automatic log rotation so reaching the cap no longer stops recording, plus continued latency investigation without repeated manual switching. Keep an active 1MiB file and five backups, preserve record boundaries, recover from a full existing file, and make loss/retention limits visible in offline analysis. Do not erase existing evidence or claim the uncaptured 7–8 second trial has been reconstructed.
+
+## Native Windows USB observation — approved 2026-10-18
+
+The user approved replacing repeated PowerShell USB discovery with Windows native device enumeration, separating USB observation from display refresh, and verifying with automated tests without further manual switching. Keep the existing two-host policy and native UI. Device notifications wake an independent USB observer; fresh exact topology snapshots establish ownership. Full display/USB validation remains mandatory before writes, retries and input probes. No running app restart or physical switch trial is required for this implementation. See [native USB plan](plans/windows-native-usb.md).
+
 ## Two-host automatic switching (current approved scope)
 
 Run the native Rust app on both Mac and Windows with independently enrolled display/hub identities and mirrored local/remote inputs. The current home mapping is Mac local 5 / remote 7 and Windows local 7 / remote 5; these are user-specific values, not product defaults. Both hosts stay awake. Settled USB arrival selects local; settled departure after established ownership selects remote. The two requests therefore agree on the destination input. This supersedes the single-controller restriction in the initial Rust plan. No network service is needed. See [dual-host plan](plans/dual-host.md) for evidence limits, races and validation.

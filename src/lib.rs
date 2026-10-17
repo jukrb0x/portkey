@@ -13,3 +13,9 @@ pub mod startup;
 pub mod profiles;
 
 pub mod setup;
+
+pub mod timing;
+
+pub mod product;
+
+pub mod diagnostics;
