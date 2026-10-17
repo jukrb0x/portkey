@@ -2,7 +2,7 @@ import AppKit
 
 
 private struct Device: Codable, Equatable { var id: String; var label: String }
-private struct Configuration: Codable {
+private struct Configuration: Codable, Equatable {
     var version = 1
     var platform = "macos"
     var display_id = ""
@@ -13,7 +13,11 @@ private struct Configuration: Codable {
     var language = "en"
 }
 private struct Inventory: Decodable, Equatable { var displays: [Device]; var hubs: [Device] }
+private struct SavedProfile: Decodable { var name: String; var display_id: String }
 private struct Snapshot: Decodable {
+    var profiles: [SavedProfile]
+    var active_display_id: String?
+    var profile_name: String
     var config: Configuration?
     var inventory: Inventory?
     var ownership: String
@@ -39,6 +43,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     var statusItem: NSStatusItem!
     var window: NSWindow!
     let status = NSTextField(wrappingLabelWithString: "")
+    let profileStatus = NSTextField(wrappingLabelWithString: "")
+    let profileName = NSTextField(string: "")
     let ownership = NSTextField(labelWithString: "")
     let instructions = NSTextField(wrappingLabelWithString: "")
     let inputHelp = NSTextField(wrappingLabelWithString: "")
@@ -56,6 +62,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     var saveButton: NSButton!
     var cancelButton: NSButton!
     var editButton: NSButton!
+    var newButton: NSButton!
     var importButton: NSButton!
     var localButton: NSButton!
     var remoteButton: NSButton!
@@ -117,8 +124,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             let next = try decode(pk_snapshot(handle), as: Snapshot.self)
             let inventoryChanged = snapshot?.inventory != next.inventory
             let languageChanged = language != next.language
+            let reloadDraft = !initialized || (!next.editing &&
+                (snapshot?.editing == true || snapshot?.config != next.config ||
+                 snapshot?.active_display_id != next.active_display_id || snapshot?.profile_name != next.profile_name))
             snapshot = next; language = next.language
-            if !initialized { loadDraft(next.config ?? Configuration()); initialized = true }
+            if reloadDraft {
+                loadDraft(next.config ?? Configuration()); profileName.stringValue = next.profile_name
+                initialized = true
+            }
             if inventoryChanged || languageChanged { refreshChoices() }
             updateUI()
         } catch { failBridge(error) }
@@ -170,13 +183,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let title = NSTextField(labelWithString: "PortKey"); title.font = .boldSystemFont(ofSize: 24)
         languagePicker.addItems(withTitles: ["English", "简体中文"]); languagePicker.target = self; languagePicker.action = #selector(changeLanguage)
         add(row([title, NSView(), languagePicker]))
-        ownership.font = .boldSystemFont(ofSize: 14); add(ownership); add(status)
+        ownership.font = .boldSystemFont(ofSize: 14); add(ownership); add(profileStatus); add(status)
         automatic.target = self; automatic.action = #selector(toggleAutomation); add(automatic)
         localButton = button("Use this computer", "切换到本机", #selector(useLocal))
         remoteButton = button("Use other computer", "切换到另一台电脑", #selector(useRemote))
         add(row([localButton, remoteButton]))
         add(NSBox.separator())
         add(instructions)
+        add(row([label("Setup name", "配置名称"), profileName]))
         picker(display, "Monitor", "显示器")
         picker(hub1, "USB hub 1", "USB 集线器 1")
         picker(hub2, "USB hub 2", "USB 集线器 2")
@@ -190,7 +204,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         cancelButton = button("Cancel editing", "取消编辑", #selector(cancel))
         editButton = button("Edit setup", "修改配置", #selector(edit))
         let refresh = button("Refresh devices", "刷新设备", #selector(refresh))
-        add(row([editButton, saveButton, cancelButton, refresh]))
+        newButton = button("New setup", "新增配置", #selector(newSetup))
+        add(row([editButton, newButton, saveButton, cancelButton]))
+        add(row([refresh]))
         importButton = button("Import Swift setup…", "导入 Swift 配置…", #selector(importSetup)); add(row([importButton]))
         add(NSBox.separator()); footer.font = .systemFont(ofSize: 11); add(footer)
         path.font = .systemFont(ofSize: 10); path.textColor = .secondaryLabelColor; path.isSelectable = true; add(path)
@@ -228,6 +244,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         inputHelp.stringValue = text("VCP input values: DisplayPort 15/16, HDMI 17/18; USB-C varies by model. Enter distinct values from 1–255.", "VCP 输入值：DisplayPort 15/16、HDMI 17/18；USB-C 取决于型号。请输入 1–255 内不同的数值。")
         footer.stringValue = text("Keep both computers awake. Enable automation on only one host and DDC/CI in the monitor menu. Closing this window keeps PortKey in the menu bar.", "两台电脑需保持唤醒，仅在一台主机启用自动切换，并在显示器菜单开启 DDC/CI。关闭窗口后 PortKey 继续在菜单栏运行。")
         path.stringValue = text("Configuration: ", "配置文件：") + (snapshot?.config_path ?? "")
+        let current = snapshot?.active_display_id == nil ? text("No matching display", "没有匹配的显示器") : (snapshot?.profile_name ?? "")
+        let names = snapshot?.profiles.map { $0.name }.joined(separator: " · ") ?? ""
+        profileStatus.stringValue = text("Current setup: ", "当前配置：") + current + "\n" + text("Saved setups: ", "已保存配置：") + (names.isEmpty ? text("None", "无") : names)
+        profileName.placeholderString = text("e.g. Home or Work", "例如：家里、公司")
+        profileName.setAccessibilityLabel(text("Setup name", "配置名称"))
         languagePicker.selectItem(at: language == "zh-Hans" ? 1 : 0)
         display.setAccessibilityLabel(text("Monitor", "显示器"))
         hub1.setAccessibilityLabel(text("USB hub 1", "USB 集线器 1"))
@@ -238,8 +259,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         automatic.isEnabled = canSwitch
         for control in [display, hub1, hub2] { control.isEnabled = healthy && editing }
         localInput.isEnabled = healthy && editing; remoteInput.isEnabled = healthy && editing
-        saveButton.isEnabled = healthy && editing; cancelButton.isEnabled = healthy && editing && snapshot?.config != nil
-        editButton.isEnabled = healthy && !editing; importButton.isEnabled = healthy && editing
+        profileName.isEnabled = healthy && editing
+        saveButton.isEnabled = healthy && editing
+        cancelButton.isEnabled = healthy && editing && !(snapshot?.profiles.isEmpty ?? true)
+        editButton.isEnabled = healthy && !editing && snapshot?.config != nil
+        newButton.isEnabled = healthy && !editing
+        importButton.isEnabled = healthy && editing
         localButton.isEnabled = canSwitch; remoteButton.isEnabled = canSwitch
         let states = ["owned": text("USB connected to this computer", "USB 已连接本机"), "absent": text("Enrolled USB hubs are absent", "已配置的 USB 集线器均不在本机"), "partial": text("Only one hub detected · waiting", "只检测到一个集线器 · 等待稳定"), "unknown": text("Waiting for reliable USB evidence", "等待可靠的 USB 状态")]
         ownership.stringValue = states[snapshot?.ownership ?? "unknown"] ?? states["unknown"]!
@@ -309,7 +334,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         display.toolTip = draft.display_id; hub1.toolTip = selectedHub1?.id; hub2.toolTip = selectedHub2?.id
     }
     @objc func edit() { if action(["type": "edit", "enabled": true]) != nil { if let config = snapshot?.config { loadDraft(config) }; tick() } }
-    @objc func cancel() { if action(["type": "edit", "enabled": false]) != nil { if let config = snapshot?.config { loadDraft(config) }; tick() } }
+    @objc func cancel() { if action(["type": "edit", "enabled": false]) != nil { tick() } }
+    @objc func newSetup() {
+        if action(["type": "new"]) != nil {
+            loadDraft(Configuration()); profileName.stringValue = ""; tick()
+        }
+    }
     @objc func refresh() { _ = action(["type": "refresh"]); tick() }
     @objc func save() {
         guard let local = Int(localInput.stringValue), let remote = Int(remoteInput.stringValue), (1...255).contains(local), (1...255).contains(remote), local != remote else {
@@ -319,7 +349,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         draft.hubs = [selectedHub1, selectedHub2].compactMap { $0 }; draft.language = language
         do {
             let value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(draft))
-            if action(["type": "save", "config": value]) != nil { tick() }
+            if action(["type": "save", "config": value, "profile_name": profileName.stringValue]) != nil { tick() }
         } catch { showError(String(describing: error)) }
     }
     @objc func importSetup() {

@@ -55,6 +55,12 @@ A command being sent, a monitor reporting its input and a visible picture change
 
 Use the tray/menu-bar menu to open settings, pause or select a host. Closing the settings window keeps the controller in the tray; choose **Quit PortKey** to exit. Startup failures are reported rather than leaving a hidden controller without accessible controls.
 
+## Home and work setups
+
+Save a named setup for each display, with its own USB hub pair and host input mapping. Connecting exactly one enrolled display activates its saved setup automatically. Use **New setup** to enroll another environment without replacing the first. New/unknown displays require enrollment once; identical models are matched by identity, never by their displayed name alone.
+
+No matching display or multiple connected enrolled displays pauses selection. Disconnect all but the intended enrolled display before switching. Moving USB ports/docks can change hub topology and require editing that environment's setup. Merely plugging in an HDMI/DP cable does not establish USB ownership: the physical USB switch remains required.
+
 ## Safe behavior and recovery
 
 - Both enrolled hubs must be observed locally and settle before departure can select the other host. Startup absence never means the other computer owns USB.
@@ -73,10 +79,12 @@ Rust settings are stored separately from the old Swift file:
 
 | Platform | Configuration |
 | --- | --- |
-| macOS | `~/Library/Application Support/PortKey/config-rust.json` |
-| Windows | `%APPDATA%\PortKey\config-rust.json` |
+| macOS | `~/Library/Application Support/PortKey/profiles-rust.json` |
+| Windows | `%APPDATA%\PortKey\profiles-rust.json` |
 
-Saved configuration contains only display/hub identities, input mapping, automation and language preferences. Language selection is also kept locally for first-run setup. Invalid JSON displays an error; save a reviewed replacement from setup to recover.
+Existing single-display `config-rust.json` is read as one profile when no profile store exists. The old file is preserved; subsequent saves use `profiles-rust.json`.
+
+Saved configuration contains profile names and only display/hub identities, input mapping, automation and language preferences. Language selection is also kept locally for first-run setup. Invalid JSON displays an error; save a reviewed replacement from setup to recover.
 
 On macOS, **Import Swift setup…** reads the old `config.json`. It does not overwrite that file and imports with automation off. Review and save explicitly. Never share a raw configuration or diagnostic capture without inspecting its device identifiers.
 

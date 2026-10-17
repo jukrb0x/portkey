@@ -1,6 +1,10 @@
 # Implementation brief — 2026-10-16
 
-## Native UI architecture (current approved scope)
+## Home/work profiles (current approved scope)
+
+The user wants automatic recognition of separately enrolled home/work displays. Add named per-display profiles over the shared Rust controller, preserving each environment's USB topology and input mapping. Unknown or ambiguous devices must not inherit another display's setup. Continue AppKit UI acceptance on the unlocked Mac; the currently attached display has changed and must be discovered again. See [profile plan](plans/location-profiles.md).
+
+## Native UI architecture
 
 The user explicitly requested keeping the Rust core and replacing egui with native UI on the same branch, without stepwise confirmations. macOS uses a thin Swift/AppKit menu-bar and settings frontend linked to a Rust static library. Windows uses native Win32 controls and system tray from Rust. Configuration, policy, hardware operations and lifecycle protection remain shared Rust. See [native UI plan](plans/native-ui.md); this supersedes the prior egui choice. Preserve the Rust configuration schema and explicit enrollment. No browser, egui, eframe or tray-icon UI runtime remains.
 

@@ -30,6 +30,8 @@ const INPUT1: usize = 112;
 const INPUT2: usize = 113;
 const STATUS: usize = 114;
 const PATH: usize = 115;
+const PROFILE_NAME: usize = 116;
+const NEW_SETUP: usize = 117;
 
 fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(Some(0)).collect()
@@ -134,11 +136,8 @@ impl Ui {
             self.labels();
         }
         let config = &snapshot["config"];
-        let editing = snapshot["editing"].as_bool().unwrap_or(false) || config.is_null();
-        let seed = !self.initialized
-            || (!editing
-                && (config != &self.snapshot["config"]
-                    || self.snapshot["editing"].as_bool() == Some(true)));
+        let editing = snapshot["editing"].as_bool().unwrap_or(false);
+        let seed = should_seed_form(self.initialized, &snapshot, &self.snapshot);
         let inventory = &snapshot["inventory"];
         if seed || inventory != &self.inventory || language_changed {
             let old_display = self.selected(DISPLAY, &self.displays);
@@ -186,6 +185,10 @@ impl Ui {
         }
         if seed {
             self.set_text(
+                PROFILE_NAME,
+                snapshot["profile_name"].as_str().unwrap_or(""),
+            );
+            self.set_text(
                 INPUT1,
                 &config["local_input"]
                     .as_u64()
@@ -200,10 +203,17 @@ impl Ui {
                     .unwrap_or_default(),
             );
         }
-        for id in [DISPLAY, HUB1, HUB2, INPUT1, INPUT2, SAVE] {
+        for id in [DISPLAY, HUB1, HUB2, INPUT1, INPUT2, PROFILE_NAME, SAVE] {
             EnableWindow(self.control(id), editing as i32);
         }
-        EnableWindow(self.control(EDIT), (!config.is_null()) as i32);
+        let has_profiles = snapshot["profiles"]
+            .as_array()
+            .is_some_and(|items| !items.is_empty());
+        EnableWindow(
+            self.control(EDIT),
+            (!config.is_null() || (editing && has_profiles)) as i32,
+        );
+        EnableWindow(self.control(NEW_SETUP), (!editing) as i32);
         self.set_text(
             EDIT,
             if editing {
@@ -261,7 +271,41 @@ impl Ui {
             },
             status
         );
-        self.set_text(STATUS, &state);
+        let names = snapshot["profiles"]
+            .as_array()
+            .map(|profiles| {
+                profiles
+                    .iter()
+                    .filter_map(|profile| profile["name"].as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .unwrap_or_default();
+        let active_id = snapshot["active_display_id"].as_str();
+        let matched = snapshot["profiles"]
+            .as_array()
+            .and_then(|profiles| {
+                profiles.iter().find(|profile| {
+                    active_id.is_some() && profile["display_id"].as_str() == active_id
+                })
+            })
+            .and_then(|profile| profile["name"].as_str())
+            .unwrap_or_else(|| tr(self.zh, "None", "无"));
+        self.set_text(
+            STATUS,
+            &format!(
+                "{}: {} · {}: {}\r\n{}",
+                tr(self.zh, "Matched setup", "匹配的环境"),
+                matched,
+                tr(self.zh, "Saved setups", "已保存环境"),
+                if names.is_empty() {
+                    tr(self.zh, "None", "无")
+                } else {
+                    &names
+                },
+                state
+            ),
+        );
         let tooltip = format!(
             "PortKey · {} · {}",
             ownership,
@@ -296,7 +340,13 @@ impl Ui {
             (AUTO, "Automatic switching", "自动切换"),
             (REFRESH, "Refresh devices", "刷新设备"),
             (EDIT, "Edit enrollment", "编辑设备绑定"),
-            (SAVE, "Save enrollment", "保存设备绑定"),
+            (SAVE, "Save setup", "保存环境"),
+            (NEW_SETUP, "New setup", "新增环境"),
+            (
+                207,
+                "Setup name (for example, Home or Work)",
+                "环境名称（例如：家或公司）",
+            ),
             (
                 201,
                 "Enrolled display (choose explicitly)",
@@ -359,7 +409,7 @@ impl Ui {
             );
             return;
         }
-        self.send(json!({"type":"save", "config": {"version":1, "platform":"windows", "display_id":display["id"], "hubs":[hub1,hub2], "local_input":local,"remote_input":remote,"automatic":self.snapshot["config"]["automatic"].as_bool().unwrap_or(false),"language":if self.zh {"zh-Hans"} else {"en"}}}));
+        self.send(json!({"type":"save", "profile_name":self.text(PROFILE_NAME), "config": {"version":1, "platform":"windows", "display_id":display["id"], "hubs":[hub1,hub2], "local_input":local,"remote_input":remote,"automatic":self.snapshot["config"]["automatic"].as_bool().unwrap_or(false),"language":if self.zh {"zh-Hans"} else {"en"}}}));
     }
     unsafe fn show(&self) {
         ShowWindow(self.window, SW_SHOW);
@@ -386,6 +436,17 @@ impl Ui {
                 self.send(json!({"type":"edit","enabled":self.snapshot["editing"].as_bool() != Some(true)}));
             }
             SAVE => self.save(),
+            NEW_SETUP => {
+                if self.send(json!({"type":"new"})) {
+                    // A new environment must never inherit an old device selection.
+                    self.initialized = false;
+                    self.displays.clear();
+                    self.hubs.clear();
+                    for id in [DISPLAY, HUB1, HUB2] {
+                        SendMessageW(self.control(id), CB_SETCURSEL, usize::MAX, 0);
+                    }
+                }
+            }
             LANGUAGE if notification == CBN_SELCHANGE as u16 => {
                 let chinese = SendMessageW(self.control(LANGUAGE), CB_GETCURSEL, 0, 0) == 1;
                 self.send(json!({"type":"language","value":if chinese {"zh-Hans"} else {"en"}}));
@@ -458,6 +519,13 @@ fn merge_choices(discovered: &Value, retained: &[Option<&Value>]) -> Vec<Value> 
         }
     }
     choices
+}
+
+fn should_seed_form(initialized: bool, snapshot: &Value, previous: &Value) -> bool {
+    !initialized
+        || (snapshot["editing"].as_bool() != Some(true)
+            && (snapshot["config"] != previous["config"]
+                || previous["editing"].as_bool() == Some(true)))
 }
 
 fn parse_inputs(local: &str, remote: &str) -> Option<(u8, u8)> {
@@ -626,7 +694,7 @@ unsafe fn run_native() -> Result<(), String> {
         CW_USEDEFAULT,
         CW_USEDEFAULT,
         760 * dpi / 96,
-        650 * dpi / 96,
+        690 * dpi / 96,
         null_mut(),
         null_mut(),
         instance,
@@ -692,7 +760,30 @@ unsafe fn setup(hwnd: HWND) -> Result<(), String> {
         WS_TABSTOP | WS_VSCROLL | ES_MULTILINE as u32 | ES_READONLY as u32,
         [20, 96, 700, 64],
     )?;
-    for (label, id, y) in [(201, DISPLAY, 168), (202, HUB1, 234), (203, HUB2, 300)] {
+    add(hwnd, "STATIC", "", 207, 0, [20, 168, 470, 22])?;
+    add(
+        hwnd,
+        "EDIT",
+        "",
+        PROFILE_NAME,
+        WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL as u32,
+        [20, 192, 470, 28],
+    )?;
+    SendMessageW(
+        GetDlgItem(hwnd, PROFILE_NAME as i32),
+        EM_SETLIMITTEXT,
+        80,
+        0,
+    );
+    add(
+        hwnd,
+        "BUTTON",
+        "",
+        NEW_SETUP,
+        WS_TABSTOP,
+        [510, 192, 210, 28],
+    )?;
+    for (label, id, y) in [(201, DISPLAY, 234), (202, HUB1, 300), (203, HUB2, 366)] {
         add(hwnd, "STATIC", "", label, 0, [20, y, 700, 22])?;
         add(
             hwnd,
@@ -704,38 +795,38 @@ unsafe fn setup(hwnd: HWND) -> Result<(), String> {
         )?;
         SendMessageW(GetDlgItem(hwnd, id as i32), CB_SETDROPPEDWIDTH, 1000, 0);
     }
-    add(hwnd, "STATIC", "", 204, 0, [20, 370, 300, 22])?;
+    add(hwnd, "STATIC", "", 204, 0, [20, 436, 300, 22])?;
     add(
         hwnd,
         "EDIT",
         "",
         INPUT1,
         WS_TABSTOP | WS_BORDER | ES_NUMBER as u32 | ES_AUTOHSCROLL as u32,
-        [20, 396, 300, 28],
+        [20, 462, 300, 28],
     )?;
-    add(hwnd, "STATIC", "", 205, 0, [380, 370, 340, 22])?;
+    add(hwnd, "STATIC", "", 205, 0, [380, 436, 340, 22])?;
     add(
         hwnd,
         "EDIT",
         "",
         INPUT2,
         WS_TABSTOP | WS_BORDER | ES_NUMBER as u32 | ES_AUTOHSCROLL as u32,
-        [380, 396, 340, 28],
+        [380, 462, 340, 28],
     )?;
     for id in [INPUT1, INPUT2] {
         SendMessageW(GetDlgItem(hwnd, id as i32), EM_SETLIMITTEXT, 3, 0);
     }
     for (id, x) in [(REFRESH, 20), (EDIT, 250), (SAVE, 480)] {
-        add(hwnd, "BUTTON", "", id, WS_TABSTOP, [x, 446, 220, 32])?;
+        add(hwnd, "BUTTON", "", id, WS_TABSTOP, [x, 512, 220, 32])?;
     }
-    add(hwnd, "STATIC", "", 206, 0, [20, 498, 700, 20])?;
+    add(hwnd, "STATIC", "", 206, 0, [20, 564, 700, 20])?;
     add(
         hwnd,
         "EDIT",
         "",
         PATH,
         ES_READONLY as u32 | ES_AUTOHSCROLL as u32 | WS_TABSTOP,
-        [20, 522, 700, 28],
+        [20, 588, 700, 28],
     )?;
     let mut tray = NOTIFYICONDATAW {
         cbSize: size_of::<NOTIFYICONDATAW>() as u32,
@@ -797,8 +888,22 @@ unsafe fn setup(hwnd: HWND) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{merge_choices, parse_inputs};
+    use super::{merge_choices, parse_inputs, should_seed_form};
     use serde_json::{json, Value};
+
+    #[test]
+    fn profile_changes_only_replace_forms_outside_editing() {
+        let home = json!({"editing":false,"config":{"display_id":"home"}});
+        let work = json!({"editing":false,"config":{"display_id":"work"}});
+        let draft = json!({"editing":true,"config":null});
+        assert!(should_seed_form(true, &work, &home));
+        assert!(!should_seed_form(true, &draft, &home));
+        assert!(!should_seed_form(true, &draft, &draft));
+        // New setup explicitly invalidates initialization before its first tick.
+        assert!(should_seed_form(false, &draft, &home));
+        assert!(should_seed_form(true, &home, &draft));
+        assert!(!should_seed_form(true, &home, &home));
+    }
 
     #[test]
     fn device_refresh_preserves_explicit_offline_drafts_and_saved_choices() {

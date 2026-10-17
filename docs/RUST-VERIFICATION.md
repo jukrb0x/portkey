@@ -1,3 +1,15 @@
+# Home/work profile and AppKit acceptance — 2026-10-17
+
+- 47 Rust tests pass, including migration, named upsert, home/work transition cancellation, absence/ambiguity/duplicate identity, editing/new/cancel and independent profile preferences. Host and Windows cross-target Clippy pass. 273 historical Swift assertions pass.
+- Native AppKit release build and bundle verification pass. Actual UI inspection on the unlocked Mac confirms readable Chinese/English layout, device menus, invalid/incomplete enrollment rejection, draft preservation through refresh/language changes, close/reopen with Cmd+, and native Quit.
+- Current display and USB2/USB3 hubs were rediscovered read-only. Home enrollment was saved through AppKit with the user's specified HDMI1/DP mapping and automation off. An initial empty USB snapshot was followed by valid discovery; no persistent enumeration failure was reproduced.
+- New setup and cancel preserve saved profiles and restore the detected home profile. Restart visibly selects home and shows both home/work names. Work was restored from the historical Swift enrollment using the validated Rust import/store APIs, with automation off. Identifiers and the temporary import fixture stay local outside Git.
+- The native file picker opened, but automated Go to Folder navigation repeatedly failed/reset and the computer-use connection failed once. File-picker completion is inconclusive; API import succeeded. No evidence yet isolates this as an application defect rather than automation behavior.
+- No DDC writes or actual sleep were performed. Home/work physical travel and switching, work's current cabling, and Windows runtime remain unqualified. Three pure Windows UI helper tests executed on the host; native Win32 execution remains separate.
+- Independent review found no remaining actionable profile correctness/safety issues.
+
+The previous record below describes the earlier native replacement and its then-current limitations.
+
 # Native Rust preview verification — 2026-10-16
 
 Branch: `codex/rust-cross-platform`. Local delivery only; no remote push or release publication.

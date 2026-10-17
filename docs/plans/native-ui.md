@@ -19,3 +19,6 @@ C ABI: `pk_create()->void*`, `pk_snapshot(void*)->char*`, `pk_action(void*,const
 
 ## Verification boundaries
 Retain all safety constraints and the config-rust.json schema/path. First-run remains unenrolled and paused. No automatic legacy import or arbitrary display fallback. Keep pinned m1ddc license and raw diagnostic captures outside Git. Windows cross compilation is not native Windows runtime qualification. Native UI is not license to claim physical switching or sleep/wake acceptance.
+
+## Profile extension — 2026-10-17
+See [home/work plan](location-profiles.md). Snapshot additionally exposes `profiles: [{name, display_id}]`, `active_display_id: string|null`, and `profile_name: string`. Save accepts optional `profile_name`; `new` starts a blank draft while retaining saved profiles. `edit` with false cancels and resumes exact-display matching. The active configuration remains a Config v1; persistence is now the versioned `profiles-rust.json`, with read-only migration from the previous single-config file.
