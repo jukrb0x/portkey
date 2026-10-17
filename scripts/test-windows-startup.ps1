@@ -31,7 +31,7 @@ try {
     if($process.ExitCode -ne 0){throw "Native app exited with code $($process.ExitCode)"}
     if(-not(Test-Path $env:PORTKEY_SMOKE_RESULT)){throw 'Native smoke did not produce evidence'}
     $result=Get-Content $env:PORTKEY_SMOKE_RESULT -Raw | ConvertFrom-Json
-    foreach($key in 'config_null','lifecycle_ok','usb_notifications_ready','continued_ticks_while_hidden','automatic_off','unsaved_draft_preserved_across_language','chinese_labels_rendered','native_xaml_capture_complete','stale_attestations_cleared','invalid_draft_retained','mode_edit_orchestration','async_error_recovery','new_setup_reset','tray_registered','tray_icon_loaded','shared_diagnostics_preview','qualified_finish_orchestration','independent_profile_actions') {if(-not $result.$key){throw "Native smoke failed: $key"}}
+    foreach($key in 'config_null','lifecycle_ok','usb_notifications_ready','continued_ticks_while_hidden','automatic_off','unsaved_draft_preserved_across_language','chinese_labels_rendered','native_xaml_capture_complete','stale_attestations_cleared','invalid_draft_retained','mode_edit_orchestration','async_error_recovery','new_setup_reset','tray_registered','tray_icon_loaded','shared_diagnostics_preview','qualified_finish_orchestration','independent_profile_actions','collapsed_sidebar_settings') {if(-not $result.$key){throw "Native smoke failed: $key"}}
     $profileFile=Join-Path $configuration 'profiles-rust.json'
     if(Test-Path $profileFile){$saved=Get-Content $profileFile -Raw | ConvertFrom-Json;if(@($saved.profiles).Count -gt 0){throw 'QA unexpectedly created enrollment'}}
     Write-Output (Get-Content $env:PORTKEY_SMOKE_RESULT -Raw)
@@ -46,6 +46,8 @@ try {
     $transport=@(Get-Content (Join-Path $OutputDirectory 'qa-timing.jsonl') | ForEach-Object {try{$_ | ConvertFrom-Json}catch{}} | Where-Object {$_.event -eq 'helper_start' -and $_.role -in 'read','write'})
     if($transport.Count -gt 0){throw 'Isolated QA unexpectedly invoked display transport'}
     Write-Output 'No display-read/write helper transport was invoked in isolated QA.'
+    if(-not(Test-Path (Join-Path $OutputDirectory 'native-settings-collapsed.png'))){throw 'Missing collapsed sidebar settings screenshot'}
+    Write-Output "Native XAML settings screenshot: $(Join-Path $OutputDirectory 'native-settings-collapsed.png')"
     Write-Output "Native XAML screenshot: $(Join-Path $OutputDirectory 'native-window.png')"
 } finally {
     $env:PORTKEY_CONFIG_DIR=$previousDirectory

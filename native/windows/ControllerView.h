@@ -60,7 +60,7 @@ struct ControllerView {
     void renderProfileSelection();
     void updateProfiles(winrt::Windows::Data::Json::JsonObject const &previous);
     void profileOrchestrationTests();
-    bool smokeProfiles{}, profilePromptOpen{};
+    bool smokeProfiles{}, smokeSettings{}, profilePromptOpen{};
     winrt::hstring editorProfileId;
     void qualify();
     void beginSetup();

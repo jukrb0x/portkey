@@ -354,13 +354,16 @@ void ControllerView::trayMenu() {
 }
 void ControllerView::page(wchar_t const *name) {
     auto navigation = control<NavigationView>(L"Navigation");
-    auto item = root.FindName(wcscmp(name, L"ProfilesPage") == 0      ? L"NavProfiles"
-                              : wcscmp(name, L"SetupPage") == 0       ? L"NavSetup"
-                              : wcscmp(name, L"DiagnosticsPage") == 0 ? L"NavDiagnostics"
-                                                                      : L"NavOverview");
+    auto item = wcscmp(name, L"SettingsPage") == 0
+                    ? navigation.SettingsItem()
+                    : root.FindName(wcscmp(name, L"ProfilesPage") == 0      ? L"NavProfiles"
+                                    : wcscmp(name, L"SetupPage") == 0       ? L"NavSetup"
+                                    : wcscmp(name, L"DiagnosticsPage") == 0 ? L"NavDiagnostics"
+                                                                            : L"NavOverview");
     if (navigation.SelectedItem() != item)
         navigation.SelectedItem(item);
-    for (auto candidate : {L"OverviewPage", L"ProfilesPage", L"SetupPage", L"DiagnosticsPage"})
+    for (auto candidate :
+         {L"OverviewPage", L"ProfilesPage", L"SetupPage", L"DiagnosticsPage", L"SettingsPage"})
         control<StackPanel>(candidate).Visibility(
             wcscmp(candidate, name) == 0 ? Visibility::Visible : Visibility::Collapsed);
 }
@@ -371,6 +374,10 @@ void ControllerView::bind() {
     control<NavigationView>(L"Navigation")
         .SelectionChanged(
             [this](auto const &, NavigationViewSelectionChangedEventArgs const &args) {
+                if (args.IsSettingsSelected()) {
+                    page(L"SettingsPage");
+                    return;
+                }
                 if (auto item = args.SelectedItem().try_as<NavigationViewItem>()) {
                     auto name = item.Name();
                     page(name == L"NavProfiles"      ? L"ProfilesPage"
@@ -945,6 +952,9 @@ void ControllerView::qualify() {
         setupStep = 5;
 }
 void ControllerView::translate() {
+    if (auto item =
+            control<NavigationView>(L"Navigation").SettingsItem().try_as<NavigationViewItem>())
+        item.Content(box_value(zh ? L"应用设置" : L"App settings"));
     struct Phrase {
         wchar_t const *name;
         wchar_t const *en;
@@ -978,6 +988,8 @@ void ControllerView::translate() {
          {L"NavProfiles", L"Profiles", L"配置"},
          {L"NavSetup", L"Guided setup", L"引导设置"},
          {L"NavDiagnostics", L"Diagnostics", L"诊断"},
+         {L"SettingsTitle", L"App settings", L"应用设置"},
+         {L"LanguageHeading", L"Language", L"语言"},
          {L"TrayHint", L"Closing this window keeps PortKey running in the tray.",
           L"关闭此窗口后，PortKey 仍在系统托盘中运行。"},
          {L"Quit", L"Quit PortKey", L"退出 PortKey"},
@@ -1238,8 +1250,10 @@ void ControllerView::renderProfileSelection() {
     text(L"ProfilesActive", active);
     text(L"SelectionReason", str(selection, L"message"));
     text(L"ProfilesSelectionReason", str(selection, L"message"));
-    control<ComboBox>(L"ProfilesList").Visibility(profiles.empty()?Visibility::Collapsed:Visibility::Visible);
-    control<TextBlock>(L"ViewingLabel").Visibility(profiles.empty()?Visibility::Collapsed:Visibility::Visible);
+    control<ComboBox>(L"ProfilesList")
+        .Visibility(profiles.empty() ? Visibility::Collapsed : Visibility::Visible);
+    control<TextBlock>(L"ViewingLabel")
+        .Visibility(profiles.empty() ? Visibility::Collapsed : Visibility::Visible);
     control<StackPanel>(L"ProfileSelectionSummary")
         .Visibility(!startupBlocked && !profiles.empty() ? Visibility::Visible
                                                          : Visibility::Collapsed);
@@ -1555,15 +1569,28 @@ void ControllerView::tick() {
             control<TextBox>(L"WorkspaceName").Text(L"QA workspace");
             control<TextBox>(L"DraftLocalName").Text(L"QA local unsaved");
             control<TextBox>(L"DraftRemoteName").Text(L"QA peer unsaved");
-            auto value = command(L"language");
-            put(value, L"value", hstring(L"zh-Hans"));
-            send(value);
+            auto navigation = control<NavigationView>(L"Navigation");
+            navigation.IsPaneOpen(false);
+            navigation.SelectedItem(navigation.SettingsItem());
+            control<ComboBox>(L"Language").SelectedIndex(1);
         }
+        if (ticks == 4)
+            captureWindow(L"native-settings-collapsed.png");
         if (ticks == 5) {
             smokeDraftPreserved =
                 control<TextBox>(L"DraftLocalName").Text() == L"QA local unsaved" &&
                 control<TextBox>(L"DraftRemoteName").Text() == L"QA peer unsaved";
             smokeChinese = control<TextBlock>(L"OverviewTitle").Text() == L"你的配置";
+            auto navigation = control<NavigationView>(L"Navigation");
+            smokeSettings =
+                !navigation.IsPaneOpen() && !navigation.PaneFooter() &&
+                navigation.IsSettingsVisible() &&
+                navigation.SelectedItem() == navigation.SettingsItem() &&
+                control<StackPanel>(L"SettingsPage").Visibility() == Visibility::Visible &&
+                control<StackPanel>(L"SetupPage").Visibility() == Visibility::Collapsed &&
+                control<ComboBox>(L"Language").Parent() == root.FindName(L"SettingsPage") &&
+                control<Button>(L"Quit").Parent() == root.FindName(L"SettingsPage") &&
+                control<TextBlock>(L"SettingsTitle").Text() == L"应用设置";
             captureWindow();
         }
         if (ticks == 6) {
@@ -1596,6 +1623,12 @@ void ControllerView::tick() {
             put(value, L"value", hstring(L"en"));
             send(value);
         }
+        if (ticks == 8) {
+            page(L"OverviewPage");
+            control<NavigationView>(L"Navigation").IsPaneOpen(true);
+        }
+        if (ticks == 9)
+            captureWindow(L"native-overview-expanded.png");
         if (ticks == 21) {
             auto diagnosticsResult = send(command(L"diagnostics_preview"));
             auto package = obj(diagnosticsResult, L"diagnostics");
@@ -1913,6 +1946,7 @@ void ControllerView::smokeRecord() {
         put(record, L"shared_diagnostics_preview", smokeDiagnostics);
         put(record, L"qualified_finish_orchestration", smokeFinishFlow);
         put(record, L"independent_profile_actions", smokeProfiles);
+        put(record, L"collapsed_sidebar_settings", smokeSettings);
     }
     put(record, L"tray_registered", trayReady);
     put(record, L"tray_icon_loaded", tray.hIcon != nullptr);
