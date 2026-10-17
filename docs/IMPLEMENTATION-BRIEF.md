@@ -1,5 +1,9 @@
 # Implementation brief — 2026-10-16
 
+## Current-format configuration only — authorized 2026-10-18
+
+The user requests removal of historical Swift import and old configuration migration rather than further compatibility work. Remove the import UI/parser/action, old single-file Rust fallback, sibling-app preference lookup and grandfathered automation eligibility. Current-format qualified profiles remain supported. The user approved backing up and clearing existing local profiles and drafts, then configuring anew through the current guide. Complete configuration backups were verified before reset on both platforms; automation starts off. An old/unqualified record is not automatically approved. This supersedes the migration-preservation requirements in earlier delivery sections below. Keep workflow design documents locally under ignored directories; never commit them.
+
 ## Native product delivery — authorized 2026-10-18
 
 The user now authorizes implementation and local deployment of a complete native product, prioritizing design quality over speed. Retain the repaired Rust runtime; replace presentation with SwiftUI plus AppKit integration on macOS and C++/WinRT + XAML WinUI 3 on Windows. Support two named computers, single/dual installation semantics, per-display workspaces and resumable setup with honest qualification provenance. Existing Rust automation preferences survive metadata migration; new/legacy Swift imports remain off. Controls and peer status remain explicitly local/unknown without a network protocol. No new physical switching or sleep tests. Retire historical Swift business logic only after replacement and migration safety. This supersedes historical frontend choices below.

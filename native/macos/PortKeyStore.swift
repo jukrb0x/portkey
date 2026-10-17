@@ -13,7 +13,6 @@ final class PortKeyStore: NSObject, ObservableObject {
     @Published var errorMessage: String?
     @Published var bridgeFailure: String?
     @Published var pendingTarget: String?
-    @Published var importedConfig: Configuration?
     @Published var metadataDraft = WorkspaceDraft()
     @Published var editingMetadata = false
     @Published var exportResult: String?
@@ -318,18 +317,6 @@ final class PortKeyStore: NSObject, ObservableObject {
             return
         }
         if action(["type": "workspace_save", "target_profile_id": id, "profile_name": metadataDraft.name, "workspace": metadataDraft.metadataChanges(from: metadataBaseline)]) != nil { editingMetadata = false; metadataProfileID = nil }
-    }
-    func importLegacy() {
-        let panel = NSOpenPanel(); panel.canChooseDirectories = false; panel.allowsMultipleSelection = false
-        panel.message = text("Choose a historical PortKey configuration. Review the imported binding before saving; automation remains off.", "选择旧版 PortKey 配置。保存前请检查设备绑定；自动切换保持关闭。")
-        guard panel.runModal() == .OK, let url = panel.url, let reply = action(["type": "import", "path": url.path]), let value = reply["config"] else { return }
-        do { importedConfig = try JSONDecoder().decode(Configuration.self, from: JSONSerialization.data(withJSONObject: value)); page = .preferences }
-        catch { errorMessage = String(describing: error) }
-    }
-    func saveImported() {
-        guard var config = importedConfig else { return }
-        config.automatic = false; config.language = language
-        if action(["type": "save", "config": json(config), "profile_name": text("Imported profile", "导入的配置")]) != nil { importedConfig = nil; page = .workspaces }
     }
     var diagnosticsPreview: String { diagnosticsPackageJSON ?? diagnosticsSnapshotFallback }
     var diagnosticsSnapshotFallback: String {

@@ -21,7 +21,7 @@ pub fn display(message: &str, chinese: bool) -> Cow<'_, str> {
         ("Monitor selected. Keep USB on this computer, then start USB detection.", "已选择显示器。请将 USB 切换到本机，再开始检测 USB 开关。"),
         ("Workspace must be an object.", "工作区数据格式无效。"),
         ("Qualification binding cannot be supplied by the frontend.", "界面不能直接指定硬件验证绑定。"),
-        ("Historical provenance cannot be assigned to new qualification.", "新的验证记录不能标记为历史记录。"),
+        ("Historical provenance is not supported for new qualification.", "新版配置不支持使用旧版历史记录作为验证。"),
         ("Invalid workspace:", "工作区数据无效："),
         ("Invalid computer, installation mode or qualification choice.", "电脑、安装方式或验证选项无效。"),
         ("Invalid workspace identity or revision.", "工作区标识或版本无效。"),
@@ -139,8 +139,6 @@ pub fn display(message: &str, chinese: bool) -> Cow<'_, str> {
         ),
         ("Cannot write configuration:", "无法写入配置："),
         ("Cannot replace configuration:", "无法替换配置："),
-        ("Cannot read legacy configuration:", "无法读取旧版配置："),
-        ("Invalid legacy configuration:", "旧版配置无效："),
         (
             "Request expired or was cancelled; retry after discovery.",
             "请求已过期或取消，请在设备发现完成后重试。",

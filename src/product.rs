@@ -81,22 +81,10 @@ pub fn validate_name(value: &str) -> Result<(), String> {
     }
 }
 impl Workspace {
-    pub fn legacy(config: &Config) -> Self {
-        use std::hash::{Hash, Hasher};
-        let mut identity = std::collections::hash_map::DefaultHasher::new();
-        config.display_id.hash(&mut identity);
-        Self {
-            workspace_id: format!("pk-legacy-{:x}", identity.finish()),
-            verification: "historical_unknown".into(),
-            ..Self::default()
-        }
-    }
     pub fn edit(&self, value: Value) -> Result<Self, String> {
         let object = value.as_object().ok_or("Workspace must be an object.")?;
-        if object.get("verification").and_then(Value::as_str) == Some("historical_unknown")
-            && self.verification != "historical_unknown"
-        {
-            return Err("Historical provenance cannot be assigned to new qualification.".into());
+        if object.get("verification").and_then(Value::as_str) == Some("historical_unknown") {
+            return Err("Historical provenance is not supported for new qualification.".into());
         }
         if object.contains_key("binding") {
             return Err("Qualification binding cannot be supplied by the frontend.".into());
@@ -119,9 +107,6 @@ impl Workspace {
             || next.revision != self.revision
         {
             next.binding = None;
-            if next.verification == "historical_unknown" {
-                next.verification = "not_checked".into();
-            }
         }
         next.validate()?;
         Ok(next)
@@ -210,12 +195,11 @@ impl Workspace {
     }
 
     pub fn can_enable(&self, config: &Config) -> bool {
-        self.verification == "historical_unknown"
-            || (self.current(config)
-                && ((self.mode == "single"
-                    && self.single_controller == "local"
-                    && self.verification == "single_observed")
-                    || (self.mode == "dual" && self.verification == "dual_observed")))
+        self.current(config)
+            && ((self.mode == "single"
+                && self.single_controller == "local"
+                && self.verification == "single_observed")
+                || (self.mode == "dual" && self.verification == "dual_observed"))
     }
     pub fn public(&self) -> Value {
         let mut v = json!(self);

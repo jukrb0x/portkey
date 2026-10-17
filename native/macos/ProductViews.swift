@@ -568,22 +568,6 @@ struct PreferencesView: View {
                 DetailRow(title: model.text("Pause scope", "暂停范围"), value: model.text("This computer only", "仅本机"))
             }
         }
-        Surface {
-            VStack(alignment: .leading, spacing: 15) {
-                Text(model.text("Existing configuration", "现有配置")).font(.headline)
-                Muted(model.text("Import a historical Swift setup explicitly, then review its exact display and USB binding before saving. Imported setups start with automation off and no new-runtime qualification.", "明确导入旧版 Swift 配置，核对显示器和 USB 的确切绑定后再保存。导入配置的自动切换关闭，且不视为通过新运行时验证。"))
-                Button(model.text("Import historical setup…", "导入旧版配置…")) { model.importLegacy() }.disabled(model.snapshot?.setup != nil)
-                if let imported = model.importedConfig {
-                    Divider()
-                    Text(model.text("Imported binding · review before saving", "已导入绑定 · 保存前请核对")).font(.headline)
-                    Text(imported.display_id).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                    DetailRow(title: model.text("Input choices", "输入映射"), value: "\(imported.local_input) / \(imported.remote_input)")
-                    ForEach(imported.hubs) { hub in Text(hub.label).font(.caption).textSelection(.enabled) }
-                    Notice(title: model.text("Automation stays off", "自动切换保持关闭"), detail: model.text("The saved identities must match this computer’s hardware exactly. No mapping or topology is guessed.", "保存的身份必须与本机硬件精确匹配，不猜测映射或拓扑。"))
-                    HStack { Button(model.text("Discard import", "放弃导入")) { model.importedConfig = nil; _ = model.action(["type": "edit", "enabled": false]) }; Button(model.text("Save imported enrollment", "保存导入的设备配置")) { model.saveImported() } }
-                }
-            }
-        }
         Muted(model.text("PortKey switches the monitor’s video input. It does not move USB, wake another computer, or know whether the other PortKey instance is running.", "PortKey 切换显示器的视频输入，不会转移 USB、唤醒另一台电脑或获知另一台 PortKey 是否运行。"))
     }
 }

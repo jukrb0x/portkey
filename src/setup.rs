@@ -10,7 +10,6 @@ pub struct Setup {
     pub error: bool,
     pub display_id: String,
     pub name: String,
-    #[serde(default = "crate::profiles::new_profile_id")]
     pub profile_id: String,
     #[serde(default)]
     pub target_profile_id: Option<String>,
@@ -25,7 +24,6 @@ pub struct Setup {
     pub product_configured: bool,
     #[serde(default)]
     pub draft_saved: bool,
-    #[serde(default = "new_draft_id")]
     pub draft_id: String,
     #[serde(default = "local_role")]
     pub input_role: String,
@@ -194,9 +192,7 @@ impl Setup {
                     }
                 }
                 self.workspace.binding = None;
-                if self.workspace.verification != "historical_unknown" {
-                    self.workspace.verification = "not_checked".into();
-                }
+                self.workspace.verification = "not_checked".into();
                 self.code = Some(input_code(self.local_input.unwrap_or(input)));
                 self.phase = "exchange".into();
                 self.message =

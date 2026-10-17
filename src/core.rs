@@ -1,9 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::{
-    fs,
-    io::Write,
-    path::{Path, PathBuf},
-};
+use std::{fs, io::Write, path::Path};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Hub {
@@ -101,11 +97,6 @@ impl Config {
             self.remote_input
         }
     }
-    pub fn path() -> Result<PathBuf, String> {
-        dirs::config_dir()
-            .map(|p| p.join("PortKey/config-rust.json"))
-            .ok_or_else(|| "Cannot locate the per-user configuration directory".into())
-    }
     pub fn load(path: &Path) -> Result<Option<Self>, String> {
         let bytes = match fs::read(path) {
             Ok(bytes) => bytes,
@@ -154,62 +145,6 @@ impl Config {
             let _ = fs::remove_file(&temp);
         }
         result
-    }
-    /// Import only on explicit request; callers choose whether to save into the separate Rust file.
-    pub fn import_legacy(path: &Path) -> Result<Self, String> {
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct LegacyHub {
-            vendor: u32,
-            product: u32,
-            location: u32,
-            parent_vendor: u32,
-            parent_product: u32,
-            parent_location: u32,
-        }
-        impl LegacyHub {
-            fn hub(self, label: &str) -> Hub {
-                Hub {
-                    id: format!(
-                        "macos:{:04x}:{:04x}:{:08x}:{:04x}:{:04x}:{:08x}",
-                        self.vendor,
-                        self.product,
-                        self.location,
-                        self.parent_vendor,
-                        self.parent_product,
-                        self.parent_location
-                    ),
-                    label: label.into(),
-                }
-            }
-        }
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Legacy {
-            monitor: String,
-            mac_input: u8,
-            windows_input: u8,
-            usb2: LegacyHub,
-            usb3: LegacyHub,
-        }
-        let bytes = fs::read(path).map_err(|e| format!("Cannot read legacy configuration: {e}"))?;
-        let old: Legacy = serde_json::from_slice(&bytes)
-            .map_err(|e| format!("Invalid legacy configuration: {e}"))?;
-        let config = Self {
-            version: 1,
-            platform: "macos".into(),
-            display_id: old.monitor.to_ascii_uppercase(),
-            local_input: old.mac_input,
-            remote_input: old.windows_input,
-            hubs: vec![
-                old.usb2.hub("Imported USB2 hub"),
-                old.usb3.hub("Imported USB3 hub"),
-            ],
-            automatic: false,
-            language: "en".into(),
-        };
-        config.validate()?;
-        Ok(config)
     }
 }
 fn valid_hub_id(platform: &str, id: &str) -> bool {
@@ -593,7 +528,7 @@ mod config_tests {
             language: "en".into(),
         }
     }
-    fn temp() -> PathBuf {
+    fn temp() -> std::path::PathBuf {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         std::env::temp_dir()
             .join(format!(
@@ -857,19 +792,6 @@ mod config_tests {
         assert_eq!(fs::read(&path).unwrap(), bytes);
         fs::write(&path, "{}").unwrap();
         assert!(Config::load(&path).is_err());
-        fs::remove_dir_all(path.parent().unwrap()).unwrap();
-    }
-    #[test]
-    fn legacy_import_is_explicit_and_preserves_source() {
-        let path = temp();
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let raw = r#"{"monitor":"12345678-1234-1234-1234-123456789abc","macInput":17,"windowsInput":15,"usb2":{"vendor":1507,"product":1552,"location":34738176,"parentVendor":1507,"parentProduct":1552,"parentLocation":34734080},"usb3":{"vendor":1507,"product":1574,"location":35717120,"parentVendor":1507,"parentProduct":1574,"parentLocation":35651584}}"#;
-        fs::write(&path, raw).unwrap();
-        let c = Config::import_legacy(&path).unwrap();
-        assert_eq!(c.display_id, "12345678-1234-1234-1234-123456789ABC");
-        assert_eq!(c.hubs[0].id, "macos:05e3:0610:02121000:05e3:0610:02120000");
-        assert!(!c.automatic);
-        assert_eq!(fs::read_to_string(&path).unwrap(), raw);
         fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 }

@@ -1,4 +1,4 @@
-//! Versioned per-display enrollment. Legacy single-display data is never overwritten.
+//! Versioned per-display enrollment for the current native application.
 use crate::core::{Config, Display};
 use serde::{Deserialize, Serialize};
 use std::{fs, io::Write, path::Path};
@@ -6,7 +6,6 @@ use std::{fs, io::Write, path::Path};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Profile {
-    #[serde(default)]
     pub profile_id: String,
     pub name: String,
     pub config: Config,
@@ -33,22 +32,6 @@ impl Default for Profiles {
     }
 }
 impl Profiles {
-    pub fn from_legacy(config: Option<Config>) -> Self {
-        Self {
-            version: 1,
-            preferred_profiles: Default::default(),
-            profiles: config
-                .into_iter()
-                .map(|config| Profile {
-                    profile_id: legacy_profile_id(&config),
-                    name: config.display_id.clone(),
-                    config,
-                    workspace: None,
-                    completed_draft_id: None,
-                })
-                .collect(),
-        }
-    }
     pub fn validate(&self) -> Result<(), String> {
         if self.version != 1 {
             return Err("Unsupported profile store version".into());
@@ -82,13 +65,6 @@ impl Profiles {
         }
         Ok(())
     }
-    pub fn normalize_ids(&mut self) {
-        for profile in &mut self.profiles {
-            if profile.profile_id.is_empty() {
-                profile.profile_id = legacy_profile_id(&profile.config);
-            }
-        }
-    }
     pub fn unique_for_display(&self, display_id: &str) -> Result<Option<&Profile>, String> {
         let mut profiles = self
             .profiles
@@ -105,16 +81,13 @@ impl Profiles {
         }
     }
     pub fn load(path: &Path) -> Result<Self, String> {
-        let mut store: Self = match fs::read(path) {
+        let store: Self = match fs::read(path) {
             Ok(bytes) => {
                 serde_json::from_slice(&bytes).map_err(|e| format!("Invalid profile store: {e}"))?
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                Self::from_legacy(Config::load(&path.with_file_name("config-rust.json"))?)
-            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Self::default(),
             Err(e) => return Err(format!("Cannot read profile store: {e}")),
         };
-        store.normalize_ids();
         store.validate()?;
         Ok(store)
     }
@@ -174,33 +147,6 @@ impl Profiles {
     }
     pub fn save(&self, path: &Path) -> Result<(), String> {
         self.validate()?;
-        if path.exists() {
-            let backup = path.with_file_name(format!(
-                "{}.pre-product.bak",
-                path.file_name()
-                    .ok_or("Profile path needs a file name")?
-                    .to_string_lossy()
-            ));
-            if !backup.exists() {
-                let bytes = fs::read(path)
-                    .map_err(|e| format!("Cannot preserve original profiles: {e}"))?;
-                let mut options = fs::OpenOptions::new();
-                options.write(true).create_new(true);
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::OpenOptionsExt;
-                    options.mode(0o600);
-                }
-                let mut original = options
-                    .open(&backup)
-                    .map_err(|e| format!("Cannot preserve original profiles: {e}"))?;
-                if let Err(error) = original.write_all(&bytes).and_then(|_| original.sync_all()) {
-                    drop(original);
-                    let _ = fs::remove_file(&backup);
-                    return Err(format!("Cannot preserve original profiles: {error}"));
-                }
-            }
-        }
         let parent = path
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
@@ -241,18 +187,6 @@ pub fn new_profile_id() -> String {
         "profile-{}",
         crate::product::Workspace::default().workspace_id
     )
-}
-fn legacy_profile_id(config: &Config) -> String {
-    // Fixed FNV-1a keeps unsaved legacy identities stable across Rust/toolchain upgrades.
-    let hash = config
-        .platform
-        .bytes()
-        .chain([0])
-        .chain(config.display_id.bytes())
-        .fold(0xcbf29ce484222325u64, |value, byte| {
-            (value ^ u64::from(byte)).wrapping_mul(0x100000001b3)
-        });
-    format!("profile-legacy1-{hash:016x}")
 }
 fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 120 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')

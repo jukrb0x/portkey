@@ -65,4 +65,4 @@ CI checks the Rust core and both native builds. The [release workflow](.github/w
 
 Configuration stays in `~/Library/Application Support/PortKey/` on macOS or `%APPDATA%\PortKey\` on Windows. Quit before backing up or restoring it. Use a fresh `PORTKEY_CONFIG_DIR` for isolated development; do not copy enabled live profiles into smoke tests.
 
-The previous Swift controller is retired; do not run a historical binary alongside this version. See [migration notes](docs/SWIFT-README.md), the [implementation brief](docs/IMPLEMENTATION-BRIEF.md), and [m1ddc provenance/license](ThirdParty/m1ddc/UPSTREAM.md).
+The previous Swift controller is retired. Configure this version through the current setup guide; configurations from earlier Swift/Rust previews are not migrated. See the [implementation brief](docs/IMPLEMENTATION-BRIEF.md) and [m1ddc provenance/license](ThirdParty/m1ddc/UPSTREAM.md).

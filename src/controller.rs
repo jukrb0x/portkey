@@ -702,23 +702,9 @@ fn controller_config_path(directory: Option<std::ffi::OsString>) -> Result<PathB
         }
         return Ok(path.join("profiles-rust.json"));
     }
-    Config::path().map(|p| p.with_file_name("profiles-rust.json"))
-}
-
-fn read_saved_language(
-    path: &std::path::Path,
-    allow_legacy: bool,
-    mut read: impl FnMut(PathBuf) -> Option<String>,
-) -> Option<String> {
-    let mut validated =
-        |path| read(path).filter(|value| matches!(value.as_str(), "en" | "zh-Hans"));
-    validated(path.with_file_name("language")).or_else(|| {
-        let directory = path.parent()?;
-        if !allow_legacy || directory.file_name()? != "PortKey" {
-            return None;
-        }
-        validated(directory.parent()?.join("portkey/language"))
-    })
+    dirs::config_dir()
+        .map(|p| p.join("PortKey/profiles-rust.json"))
+        .ok_or_else(|| "Cannot locate the per-user configuration directory".into())
 }
 
 struct ProfileOverride {
@@ -755,7 +741,6 @@ pub struct Controller {
     path: Result<PathBuf, String>,
     instance: Option<Arc<File>>,
     startup_error: Option<String>,
-    import_review: bool,
     draft_completed: bool,
     warning: Option<String>,
 }
@@ -771,13 +756,12 @@ impl Controller {
     }
     pub fn new() -> Self {
         let override_directory = std::env::var_os("PORTKEY_CONFIG_DIR");
-        let allow_legacy_preferences = override_directory.is_none();
         let path = controller_config_path(override_directory);
         let loaded = path
             .as_ref()
             .map_err(Clone::clone)
             .and_then(|p| Profiles::load(p));
-        let mut controller = Self::from_store_scoped(path, loaded, allow_legacy_preferences);
+        let mut controller = Self::from_store(path, loaded);
         let startup = controller
             .path
             .as_ref()
@@ -804,19 +788,10 @@ impl Controller {
     }
     #[cfg(test)]
     fn base(path: Result<PathBuf, String>, loaded: Result<Option<Config>, String>) -> Self {
-        Self::from_store(path, loaded.map(Profiles::from_legacy))
+        Self::from_store(path, loaded.map(tests::test_profiles))
     }
-    #[cfg(test)]
     fn from_store(path: Result<PathBuf, String>, loaded: Result<Profiles, String>) -> Self {
-        Self::from_store_scoped(path, loaded, false)
-    }
-    fn from_store_scoped(
-        path: Result<PathBuf, String>,
-        loaded: Result<Profiles, String>,
-        allow_legacy_preferences: bool,
-    ) -> Self {
-        let loaded = loaded.and_then(|mut profiles| {
-            profiles.normalize_ids();
+        let loaded = loaded.and_then(|profiles| {
             profiles.validate()?;
             Ok(profiles)
         });
@@ -829,9 +804,9 @@ impl Controller {
             .as_ref()
             .map(|c| c.language.clone())
             .or_else(|| {
-                read_saved_language(path.as_ref().ok()?, allow_legacy_preferences, |p| {
-                    std::fs::read_to_string(p).ok()
-                })
+                std::fs::read_to_string(path.as_ref().ok()?.with_file_name("language"))
+                    .ok()
+                    .filter(|value| matches!(value.as_str(), "en" | "zh-Hans"))
             })
             .unwrap_or_else(|| "en".into());
         let mut policy = Policy::new();
@@ -885,7 +860,6 @@ impl Controller {
             lifecycle: crate::lifecycle::snapshot,
             instance: None,
             startup_error,
-            import_review: false,
             draft_completed,
             warning,
         }
@@ -1532,18 +1506,8 @@ impl Controller {
                     .iter_mut()
                     .find(|p| p.profile_id == id)
                     .unwrap();
-                let original = profile
-                    .workspace
-                    .clone()
-                    .unwrap_or_else(|| crate::product::Workspace::legacy(&profile.config));
+                let original = profile.workspace.clone().unwrap_or_default();
                 let updated = original.edit(workspace)?;
-                if updated.verification == "historical_unknown"
-                    && original.verification != "historical_unknown"
-                {
-                    return Err(
-                        "Historical provenance cannot be assigned to new qualification.".into(),
-                    );
-                }
                 if let Some(name) = profile_name {
                     crate::product::validate_name(&name)?;
                     profile.name = name.trim().into();
@@ -1632,7 +1596,6 @@ impl Controller {
                 None,
             ),
             Action::New => {
-                self.import_review = false;
                 self.setup = None;
                 self.reset();
                 self.editing = true;
@@ -1648,7 +1611,6 @@ impl Controller {
                 self.worker.refresh();
             }
             Action::Edit { enabled } => {
-                self.import_review = false;
                 self.setup = None;
                 self.reset();
                 self.editing = enabled;
@@ -1677,13 +1639,8 @@ impl Controller {
                         .unwrap_or_else(crate::profiles::new_profile_id)
                 };
                 let existing = next.profiles.iter().find(|p| p.profile_id == id);
-                let replace_trust = self.import_review
-                    || existing.is_none_or(|p| {
-                        p.workspace
-                            .as_ref()
-                            .is_none_or(|w| w.verification == "historical_unknown")
-                            && !crate::product::same_binding(&p.config, &config)
-                    });
+                let replace_trust =
+                    existing.is_none_or(|p| !crate::product::same_binding(&p.config, &config));
                 let workspace = if replace_trust {
                     let mut unverified = existing
                         .and_then(|p| p.workspace.clone())
@@ -1695,7 +1652,11 @@ impl Controller {
                     unverified.peer_paused_confirmed = false;
                     Some(unverified)
                 } else {
-                    existing.and_then(|p| p.workspace.clone())
+                    Some(
+                        existing
+                            .and_then(|p| p.workspace.clone())
+                            .unwrap_or_default(),
+                    )
                 };
                 if config.automatic && workspace.as_ref().is_some_and(|w| !w.can_enable(&config)) {
                     return Err("Qualify both directions before enabling automation.".into());
@@ -1713,7 +1674,6 @@ impl Controller {
                 self.editing = true;
                 next.save(self.path.as_ref().map_err(Clone::clone)?)?;
                 self.profiles = next;
-                self.import_review = false;
                 self.language = config.language.clone();
                 self.config = None;
                 self.active_profile_id = None;
@@ -1798,21 +1758,7 @@ impl Controller {
                     self.status.clear();
                 }
             }
-            Action::Import { path } => {
-                let config = Config::import_legacy(std::path::Path::new(&path))?;
-                self.validate_config(&config)?;
-                self.import_review = true;
-                self.reset();
-                self.editing = true;
-                self.status = self
-                    .text(
-                        "Imported. Review the selection and save to finish.",
-                        "已导入，请检查设备选择并保存。",
-                    )
-                    .into();
-                self.error = false;
-                return Ok(json!({"ok":true,"config":config}));
-            }
+
             Action::Quit => unreachable!(),
         }
         Ok(json!({"ok":true}))
@@ -1867,10 +1813,7 @@ impl Controller {
         else {
             return Value::Null;
         };
-        let workspace = profile
-            .workspace
-            .clone()
-            .unwrap_or_else(|| crate::product::Workspace::legacy(&profile.config));
+        let workspace = profile.workspace.clone().unwrap_or_default();
         let can_enable = workspace.can_enable(config);
         let state = if self.editing {
             "editing"
@@ -2108,7 +2051,9 @@ impl Controller {
             self.policy.set_automatic(
                 next.as_ref().is_some_and(|p| {
                     p.config.automatic
-                        && p.workspace.as_ref().is_none_or(|w| w.can_enable(&p.config))
+                        && p.workspace
+                            .as_ref()
+                            .is_some_and(|w| w.can_enable(&p.config))
                 }),
                 self.started.elapsed().as_millis() as u64,
             );
@@ -2240,9 +2185,7 @@ enum Action {
     Edit {
         enabled: bool,
     },
-    Import {
-        path: String,
-    },
+
     Quit,
 }
 #[derive(Clone, Copy, serde::Deserialize)]
@@ -2272,6 +2215,34 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    pub(super) fn test_profiles(config: Option<Config>) -> Profiles {
+        let mut profiles = Profiles::default();
+        if let Some(config) = config {
+            profiles.upsert(None, config.clone()).unwrap();
+            let mut workspace = crate::product::Workspace {
+                mode: "single".into(),
+                remote_os: if std::env::consts::OS == "macos" {
+                    "windows"
+                } else {
+                    "macos"
+                }
+                .into(),
+                verification: "single_observed".into(),
+                peer_paused_confirmed: true,
+                ..Default::default()
+            };
+            for direction in [
+                &mut workspace.evidence.local,
+                &mut workspace.evidence.remote,
+            ] {
+                direction.result = "observed".into();
+                direction.source = "user_observed".into();
+            }
+            workspace.attest(&config).unwrap();
+            profiles.profiles[0].workspace = Some(workspace);
+        }
+        profiles
+    }
     fn controller() -> Controller {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let mut c = Controller::base(
@@ -3169,68 +3140,110 @@ mod tests {
         assert!(c.policy.sleeping());
     }
     #[test]
-    fn product_upgraded_history_cannot_follow_changed_binding_even_after_reload() {
-        for reload in [false, true] {
-            for topology_change in [false, true] {
-                let mut c = enrolled();
-                c.profiles.profiles[0].config.automatic = true;
-                discover(&mut c, &[0], true);
-                assert_eq!(c.action(json!({"type":"workspace_save","workspace":{"local_name":"Named laptop","remote_name":"Named desktop"}}))["ok"], true);
-                assert_eq!(
-                    c.snapshot()["workspace"]["verification"],
-                    "historical_unknown"
-                );
-                assert!(c.config.as_ref().unwrap().automatic);
-                if reload {
-                    let mut loaded = Controller::from_store(
-                        c.path.clone(),
-                        Profiles::load(c.path.as_ref().unwrap()),
-                    );
-                    loaded.lifecycle_ok = true;
-                    loaded.lifecycle = || (0, false);
-                    loaded.lifecycle_epoch = 0;
-                    c = loaded;
-                    discover(&mut c, &[0], true);
-                    assert!(c.config.as_ref().unwrap().automatic);
-                }
-                let previous = c.config.clone().unwrap();
-                let mut changed = previous.clone();
-                if topology_change {
-                    changed.hubs[0].id = if std::env::consts::OS == "macos" {
-                        "macos:05e3:0610:02122000:05e3:0610:02120000"
-                    } else {
-                        "windows:pciroot(0)#usb(3)"
-                    }
-                    .into();
-                } else {
-                    changed.remote_input = 6;
-                }
-                changed.automatic = true;
-                assert_eq!(
-                    c.action(json!({"type":"save","config":changed}))["ok"],
-                    false
-                );
-                assert_eq!(c.profiles.profiles[0].config, previous);
-                changed.automatic = false;
-                assert_eq!(
-                    c.action(json!({"type":"save","config":changed}))["ok"],
-                    true
-                );
-                discover(&mut c, &[0], true);
-                assert_eq!(c.snapshot()["workspace"]["verification"], "not_checked");
-                assert_eq!(c.snapshot()["workspace"]["local_name"], "Named laptop");
-                assert_eq!(c.snapshot()["workspace"]["can_enable"], false);
-                assert_eq!(
-                    c.action(json!({"type":"automatic","enabled":true}))["ok"],
-                    false
-                );
-                let directory = c.path.as_ref().unwrap().parent().unwrap().to_path_buf();
-                std::fs::remove_dir_all(directory).unwrap();
+    fn current_qualified_profile_pause_resume_survives_restart_and_manual_selection() {
+        let mut c = enrolled();
+        c.profiles.profiles[0].config.automatic = true;
+        discover(&mut c, &[0], true);
+        let id = c.active_profile_id.clone().unwrap();
+        assert_eq!(
+            c.action(json!({"type":"profile_select","profile_id":id}))["ok"],
+            true
+        );
+        assert_eq!(
+            c.action(json!({"type":"automatic","enabled":false}))["ok"],
+            true
+        );
+        let mut restarted =
+            Controller::from_store(c.path.clone(), Profiles::load(c.path.as_ref().unwrap()));
+        restarted.lifecycle_ok = true;
+        restarted.lifecycle = || (0, false);
+        discover(&mut restarted, &[0], true);
+        assert_eq!(restarted.snapshot()["workspace"]["can_enable"], true);
+        assert_eq!(
+            restarted.action(json!({"type":"automatic","enabled":true}))["ok"],
+            true
+        );
+        assert!(restarted.config.as_ref().unwrap().automatic);
+        let directory = c.path.as_ref().unwrap().parent().unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+    #[test]
+    fn missing_and_historical_workspace_never_authorize_automatic_switching() {
+        for historical in [false, true] {
+            let mut c = enrolled();
+            c.profiles.profiles[0].config.automatic = true;
+            if historical {
+                let workspace = c.profiles.profiles[0].workspace.as_mut().unwrap();
+                workspace.verification = "historical_unknown".into();
+                workspace.binding = None;
+            } else {
+                c.profiles.profiles[0].workspace = None;
             }
+            discover(&mut c, &[0], true);
+            assert!(!c.policy.automatic());
+            assert_eq!(c.snapshot()["workspace"]["can_enable"], false);
+            assert_eq!(
+                c.action(json!({"type":"automatic","enabled":true}))["ok"],
+                false
+            );
+            assert!(c.worker.shared.0.lock().unwrap().jobs.take().is_none());
         }
     }
     #[test]
-    fn product_new_and_imported_saves_cannot_inherit_historical_trust() {
+    fn obsolete_configurations_and_sibling_language_are_ignored_without_mutation() {
+        let c = controller();
+        let directory = c.path.as_ref().unwrap().parent().unwrap();
+        let current = directory.join("PortKey");
+        let previous = directory.join("portkey");
+        std::fs::create_dir_all(&current).unwrap();
+        std::fs::create_dir_all(&previous).unwrap();
+        let old = current.join("config-rust.json");
+        let swift = current.join("config.json");
+        std::fs::write(&old, b"invalid obsolete Rust configuration").unwrap();
+        std::fs::write(&swift, b"invalid obsolete Swift configuration").unwrap();
+        std::fs::write(previous.join("language"), "zh-Hans").unwrap();
+        // Case-insensitive filesystems alias these directory names; that is the current preference file.
+        if current.join("language").exists() {
+            std::fs::remove_file(previous.join("language")).unwrap();
+        }
+        let path = current.join("profiles-rust.json");
+        let loaded = Profiles::load(&path).unwrap();
+        assert!(loaded.profiles.is_empty());
+        let mut fresh = Controller::from_store(Ok(path.clone()), Ok(loaded));
+        assert_eq!(fresh.language, "en");
+        assert!(!path.exists());
+        assert_eq!(
+            fresh.action(json!({"type":"import","path":swift}))["ok"],
+            false
+        );
+        assert_eq!(
+            std::fs::read(&old).unwrap(),
+            b"invalid obsolete Rust configuration"
+        );
+        assert_eq!(
+            std::fs::read(&swift).unwrap(),
+            b"invalid obsolete Swift configuration"
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+    #[test]
+    fn obsolete_profiles_without_ids_are_rejected_without_rewriting() {
+        let c = enrolled();
+        let mut value = serde_json::to_value(&c.profiles).unwrap();
+        value["profiles"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("profile_id");
+        let path = c.path.as_ref().unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let bytes = serde_json::to_vec(&value).unwrap();
+        std::fs::write(path, &bytes).unwrap();
+        assert!(Profiles::load(path).is_err());
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+    #[test]
+    fn product_new_and_changed_saves_require_current_qualification() {
         {
             let original = enrolled().config.unwrap();
             let mut c = controller();
@@ -3319,56 +3332,7 @@ mod tests {
         assert!(!c.snapshot()["setup"]["error"].as_bool().unwrap());
         assert_eq!(c.setup.as_ref().unwrap().phase, "display");
     }
-    #[test]
-    fn product_isolated_portkey_directory_never_reads_legacy_sibling_language() {
-        let directory = std::env::temp_dir().join("portkey-scope-fixture");
-        let path = directory.join("PortKey/profiles-rust.json");
-        let sibling = directory.join("portkey/language");
-        // Path-addressed reader models distinct sibling files even on case-insensitive APFS/NTFS.
-        let read = |p: PathBuf| {
-            if p == sibling {
-                Some("zh-Hans".to_string())
-            } else {
-                None
-            }
-        };
-        assert_eq!(read_saved_language(&path, false, read), None);
-        assert_eq!(
-            read_saved_language(&path, true, read),
-            Some("zh-Hans".into())
-        );
-    }
     #[cfg(target_os = "macos")]
-    #[test]
-    fn product_explicit_swift_import_save_remains_unverified() {
-        let mut c = controller();
-        let dir = c.path.as_ref().unwrap().parent().unwrap().to_path_buf();
-        std::fs::create_dir_all(&dir).unwrap();
-        let source = dir.join("swift.json");
-        std::fs::write(&source, r#"{"monitor":"12345678-1234-1234-1234-123456789abc","macInput":17,"windowsInput":15,"usb2":{"vendor":1507,"product":1552,"location":34738176,"parentVendor":1507,"parentProduct":1552,"parentLocation":34734080},"usb3":{"vendor":1507,"product":1574,"location":35717120,"parentVendor":1507,"parentProduct":1574,"parentLocation":35651584}}"#).unwrap();
-        let existing = Config::import_legacy(&source).unwrap();
-        c.profiles = Profiles::from_legacy(Some(existing.clone()));
-        c.config = Some(existing);
-        let imported = c.action(json!({"type":"import","path":source.to_string_lossy()}));
-        assert_eq!(imported["ok"], true);
-        let config: Config = serde_json::from_value(imported["config"].clone()).unwrap();
-        assert_eq!(c.action(json!({"type":"save","config":config}))["ok"], true);
-        let display = c.profiles.profiles[0].config.display_id.clone();
-        c.inventory = Some(Inventory {
-            displays: vec![Display {
-                id: display,
-                label: "Imported monitor".into(),
-            }],
-            hubs: c.profiles.profiles[0].config.hubs.clone(),
-        });
-        c.config = Some(c.profiles.profiles[0].config.clone());
-        assert_eq!(
-            c.action(json!({"type":"automatic","enabled":true}))["ok"],
-            false
-        );
-        assert!(source.exists());
-        std::fs::remove_dir_all(dir).unwrap();
-    }
     #[test]
     fn product_setup_messages_localize_without_rewriting_saved_draft() {
         let mut c = controller();
@@ -3589,37 +3553,22 @@ mod tests {
         assert!(c.worker.shared.0.lock().unwrap().jobs.take().is_none());
     }
     #[test]
-    fn connection_profile_old_draft_gets_fresh_id_and_resume_persists_it() {
+    fn obsolete_draft_without_profile_identity_is_rejected_without_rewriting() {
         let mut c = enrolled();
-        let existing = c.profiles.profiles[0].profile_id.clone();
         let mut old = serde_json::to_value(crate::setup::Setup::new(
             c.config.as_ref().unwrap().display_id.clone(),
             "Old draft".into(),
         ))
         .unwrap();
         old.as_object_mut().unwrap().remove("profile_id");
-        old.as_object_mut().unwrap().remove("target_profile_id");
         std::fs::create_dir_all(c.path.as_ref().unwrap().parent().unwrap()).unwrap();
-        std::fs::write(c.draft_path().unwrap(), old.to_string()).unwrap();
-        assert_eq!(c.action(json!({"type":"setup_resume"}))["ok"], true);
-        let fresh = c.setup.as_ref().unwrap().profile_id.clone();
-        assert_ne!(fresh, existing);
-        assert!(!fresh.is_empty());
-        assert!(c.setup.as_ref().unwrap().target_profile_id.is_none());
-        assert_eq!(c.action(json!({"type":"setup_suspend"}))["ok"], true);
-        let mut reloaded = Controller::from_store(c.path.clone(), Ok(c.profiles.clone()));
-        assert_eq!(reloaded.action(json!({"type":"setup_resume"}))["ok"], true);
-        assert_eq!(reloaded.setup.as_ref().unwrap().profile_id, fresh);
-        assert!(!reloaded.setup.as_ref().unwrap().ready);
-        assert!(reloaded
-            .worker
-            .shared
-            .0
-            .lock()
-            .unwrap()
-            .jobs
-            .take()
-            .is_none());
+        let path = c.draft_path().unwrap();
+        let bytes = old.to_string();
+        std::fs::write(&path, &bytes).unwrap();
+        assert_eq!(c.action(json!({"type":"setup_resume"}))["ok"], false);
+        assert!(c.setup.is_none());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), bytes);
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
     #[test]
     fn connection_profile_auto_ambiguity_and_identical_configs_use_real_profile_identity() {
@@ -3666,83 +3615,6 @@ mod tests {
         assert_eq!(reloaded.snapshot()["profile_selection"]["mode"], "auto");
     }
     #[test]
-    fn connection_profile_legacy_ids_load_without_mutation_then_choice_backs_up_original() {
-        let mut original = two_desks().profiles;
-        original.profiles[0].config.automatic = true;
-        let configs = original
-            .profiles
-            .iter()
-            .map(|p| p.config.clone())
-            .collect::<Vec<_>>();
-        let mut legacy = serde_json::to_value(&original).unwrap();
-        legacy.as_object_mut().unwrap().remove("preferred_profiles");
-        for profile in legacy["profiles"].as_array_mut().unwrap() {
-            profile.as_object_mut().unwrap().remove("profile_id");
-        }
-        let dir =
-            std::env::temp_dir().join(format!("portkey-profile-legacy-id-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("profiles-rust.json");
-        let bytes = serde_json::to_vec_pretty(&legacy).unwrap();
-        std::fs::write(&path, &bytes).unwrap();
-        let loaded = Profiles::load(&path).unwrap();
-        let again = Profiles::load(&path).unwrap();
-        assert_eq!(std::fs::read(&path).unwrap(), bytes);
-        assert_eq!(
-            loaded
-                .profiles
-                .iter()
-                .map(|p| p.profile_id.clone())
-                .collect::<Vec<_>>(),
-            again
-                .profiles
-                .iter()
-                .map(|p| p.profile_id.clone())
-                .collect::<Vec<_>>()
-        );
-        assert!(loaded.profiles.iter().all(|p| !p.profile_id.is_empty()));
-        assert_eq!(
-            loaded
-                .profiles
-                .iter()
-                .map(|p| p.config.clone())
-                .collect::<Vec<_>>(),
-            configs
-        );
-        let id = loaded.profiles[0].profile_id.clone();
-        let mut c = Controller::from_store(Ok(path.clone()), Ok(loaded));
-        c.lifecycle_ok = true;
-        c.lifecycle = || (0, false);
-        c.lifecycle_epoch = 0;
-        assert_eq!(
-            c.action(json!({"type":"profile_select","profile_id":id}))["ok"],
-            true
-        );
-        assert_eq!(
-            std::fs::read(dir.join("profiles-rust.json.pre-product.bak")).unwrap(),
-            bytes
-        );
-        assert_eq!(
-            Profiles::load(&path)
-                .unwrap()
-                .profiles
-                .iter()
-                .map(|p| p.config.clone())
-                .collect::<Vec<_>>(),
-            configs
-        );
-        let mut invalid = serde_json::to_value(&c.profiles).unwrap();
-        invalid["preferred_profiles"][&c.profiles.profiles[0].config.display_id] =
-            json!("missing-profile");
-        std::fs::write(&path, invalid.to_string()).unwrap();
-        assert!(Profiles::load(&path).is_err());
-        invalid["preferred_profiles"][&c.profiles.profiles[0].config.display_id] =
-            json!(c.profiles.profiles[1].profile_id);
-        std::fs::write(&path, invalid.to_string()).unwrap();
-        assert!(Profiles::load(&path).is_err());
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-    #[test]
     fn connection_profiles_create_same_display_without_overwriting_and_edit_by_id() {
         let mut c = enrolled();
         discover(&mut c, &[0], true);
@@ -3779,7 +3651,11 @@ mod tests {
         assert_eq!(c.profiles.profiles.len(), 2);
         assert_eq!(c.profiles.profiles[0].config, original);
         assert_eq!(c.profiles.profiles[0].name, original_name);
-        assert!(c.profiles.profiles[0].workspace.is_none());
+        assert!(c.profiles.profiles[0]
+            .workspace
+            .as_ref()
+            .unwrap()
+            .can_enable(&original));
         let second = c.snapshot()["profiles"][1]["profile_id"]
             .as_str()
             .unwrap()
@@ -4084,19 +3960,15 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
     #[test]
-    fn product_metadata_upgrade_preserves_preference_and_scope() {
+    fn product_current_metadata_preserves_preference_and_scope() {
         let mut c = two_desks();
         let dir = std::env::temp_dir().join(format!("portkey-product-meta-{}", std::process::id()));
         c.path = Ok(dir.join("profiles-rust.json"));
         c.profiles.profiles[0].config.automatic = true;
         discover(&mut c, &[0], true);
         c.profiles.save(c.path.as_ref().unwrap()).unwrap();
-        let original = std::fs::read(c.path.as_ref().unwrap()).unwrap();
         let home = c.config.as_ref().unwrap().display_id.clone();
-        assert_eq!(
-            c.snapshot()["workspace"]["verification"],
-            "historical_unknown"
-        );
+        assert_eq!(c.snapshot()["workspace"]["verification"], "single_observed");
         let id_before_metadata = c.snapshot()["workspace"]["workspace_id"].clone();
         assert_eq!(
             c.snapshot()["workspace"]["workspace_id"],
@@ -4106,10 +3978,6 @@ mod tests {
         assert!(c.profiles.profiles[0].config.automatic);
         assert_eq!(c.snapshot()["workspace"]["local_name"], "Desk Mac");
         assert!(c.snapshot()["profiles"][1]["workspace"].is_null());
-        assert_eq!(
-            std::fs::read(dir.join("profiles-rust.json.pre-product.bak")).unwrap(),
-            original
-        );
         assert_eq!(c.action(json!({"type":"workspace_save","workspace":{"local_name":"same","remote_name":" SAME "}}))["ok"], false);
         assert_eq!(c.snapshot()["workspace"]["local_name"], "Desk Mac");
         std::fs::remove_dir_all(dir).unwrap();
@@ -4189,7 +4057,7 @@ mod tests {
             automatic: false,
             language: "en".into(),
         });
-        c.profiles = Profiles::from_legacy(c.config.clone());
+        c.profiles = test_profiles(c.config.clone());
         c.active_profile_id = Some(c.profiles.profiles[0].profile_id.clone());
         c.editing = false;
         c
@@ -4291,7 +4159,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("portkey-language-test-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("config-rust.json");
+        let path = directory.join("profiles-rust.json");
         let mut first = Controller::base(Ok(path.clone()), Ok(None));
         assert_eq!(
             first.action(json!({"type":"language","value":"zh-Hans"}))["ok"],
@@ -4386,44 +4254,6 @@ mod tests {
         c.action(json!({"type":"edit","enabled":false}));
         assert_eq!(c.profile_name(), "Home");
         assert_eq!(c.profiles.profiles.len(), 2);
-    }
-    #[test]
-    fn migrated_store_preserves_legacy_and_save_upserts_only_matching_display() {
-        let directory =
-            std::env::temp_dir().join(format!("portkey-profile-test-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).unwrap();
-        let legacy = directory.join("config-rust.json");
-        let path = directory.join("profiles-rust.json");
-        let original = enrolled().config.unwrap();
-        original.save(&legacy).unwrap();
-        let bytes = std::fs::read(&legacy).unwrap();
-        let migrated = Profiles::load(&path).unwrap();
-        assert_eq!(migrated.profiles.len(), 1);
-        assert!(!path.exists());
-        let mut c = Controller::from_store(Ok(path.clone()), Ok(migrated));
-        let work = two_desks().profiles.profiles[1].config.clone();
-        assert_eq!(c.action(json!({"type":"new"}))["ok"], true);
-        assert_eq!(
-            c.action(json!({"type":"save","profile_name":"Office","config":work}))["ok"],
-            true
-        );
-        assert_eq!(c.profiles.profiles.len(), 2);
-        assert_eq!(c.profiles.profiles[0].config, original);
-        let mut revised = c.profiles.profiles[1].config.clone();
-        revised.local_input = 18;
-        assert_eq!(
-            c.action(json!({"type":"save","config":revised}))["ok"],
-            true
-        );
-        let reloaded = Profiles::load(&path).unwrap();
-        assert_eq!(reloaded.profiles.len(), 2);
-        assert_eq!(reloaded.profiles[1].name, "Office");
-        assert_eq!(reloaded.profiles[1].config.local_input, 18);
-        assert_eq!(std::fs::read(&legacy).unwrap(), bytes);
-        // A malformed new store must not silently fall back to legacy or overwrite it.
-        std::fs::write(&path, "{}").unwrap();
-        assert!(Profiles::load(&path).is_err());
-        std::fs::remove_dir_all(directory).unwrap();
     }
     #[test]
     fn worker_profile_revalidation_rejects_new_ambiguity_and_wrong_desk() {
