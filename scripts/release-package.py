@@ -17,10 +17,10 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 def version():
     cargo = (ROOT / 'Cargo.toml').read_text()
     value = re.search(r'^version = "([^"]+)"', cargo, re.M).group(1)
-    if value != '1.0.1':
-        raise ValueError('This release preparation supports only 1.0.1')
+    if value != '1.0.2':
+        raise ValueError('This release preparation supports only 1.0.2')
     info = plistlib.loads((ROOT / 'Resources/Rust-Info.plist').read_bytes())
-    if (info['CFBundleShortVersionString'], info['CFBundleVersion'], info['PortKeyReleaseVersion']) != ('1.0.1', '3', value):
+    if (info['CFBundleShortVersionString'], info['CFBundleVersion'], info['PortKeyReleaseVersion']) != ('1.0.2', '4', value):
         raise ValueError('macOS version metadata does not match Cargo')
     lock = (ROOT / 'Cargo.lock').read_text()
     if f'name = "portkey"\nversion = "{value}"' not in lock:

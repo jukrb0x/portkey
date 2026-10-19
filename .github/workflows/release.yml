@@ -5,7 +5,7 @@ on:
       tag:
         description: Existing release tag (must match checked-in version)
         required: true
-        default: v1.0.1
+        default: v1.0.2
   push:
     tags: ['v*']
 permissions:
