@@ -9,7 +9,7 @@ func expect(_ value: @autoclosure () -> Bool, _ message: String) {
 }
 func baseSnapshot() throws -> Snapshot {
     try JSONDecoder().decode(Snapshot.self, from: Data("""
-    {"profiles":[{"profile_id":"profile-A","name":"Home","display_id":"display-A"},{"profile_id":"profile-B","name":"Work","display_id":"display-B"}],"active_profile_id":"profile-A","active_display_id":"display-A","profile_name":"Home","config":{"version":1,"platform":"macos","display_id":"display-A","local_input":5,"remote_input":7,"hubs":[],"automatic":true,"language":"en"},"inventory":{"displays":[],"hubs":[]},"ownership":"owned","status":"","error":false,"lifecycle_ok":true,"sleeping":false,"language":"en","config_path":"/isolated/config","editing":false}
+    {"profiles":[{"profile_id":"profile-A","name":"Home","display_id":"display-A"},{"profile_id":"profile-B","name":"Work","display_id":"display-B"}],"active_profile_id":"profile-A","active_display_id":"display-A","profile_name":"Home","config":{"version":1,"platform":"macos","display_id":"display-A","local_input":5,"remote_input":7,"hubs":[],"automatic":true,"language":"en"},"inventory":{"displays":[],"hubs":[]},"ownership":"owned","status":"","error":false,"lifecycle_ok":true,"sleeping":false,"lifecycle_epoch":0,"language":"en","config_path":"/isolated/config","editing":false}
     """.utf8))
 }
 final class MemoryCore: CoreSession {
@@ -45,6 +45,13 @@ defer { preferences.removePersistentDomain(forName: suiteName) }
 let store = PortKeyStore(core: core, preferences: preferences)
 store.snapshot = core.current
 store.selectedProfileID = "profile-B"
+core.current.setup = SetupState(phase: "ready", name: "Work", display_id: "display-B", local_input: 17, remote_input: 15, workspace: Workspace(), profile_id: "profile-B", target_profile_id: "profile-B")
+// Supply the post-action snapshot without starting any hardware observer.
+store.editProfileSetup()
+expect(core.actions.last?["type"] as? String == "setup_edit" && core.actions.last?["profile_id"] as? String == "profile-B", "setup editor targets the viewed profile explicitly")
+expect(store.page == .setup && store.draft.step == 3 && store.draft.name == "Work" && store.draft.displayID == "display-B" && store.draft.profileID == "profile-B", "existing profile opens at review with saved bindings instead of fresh enrollment")
+core.current.setup = nil; store.snapshot = core.current; core.actions = []
+store.selectedProfileID = "profile-B"
 store.editProfileDetails()
 store.metadataDraft.localName = "Work laptop"
 store.metadataDraft.remoteName = "Personal desktop"
@@ -69,6 +76,26 @@ store.editProfileDetails()
 core.current.profiles.removeAll { $0.display_id == "display-A" }; store.snapshot = core.current
 store.saveProfileDetails()
 expect(core.actions.isEmpty && store.errorMessage != nil && store.editingMetadata, "missing edited profile is recoverable and cannot write another profile")
+
+// Enabling records the user's actual observations and commits once, without a separate evidence-save step.
+var editWorkspace = Workspace(); editWorkspace.workspace_id = "pk-state-edit"
+core.current.setup = SetupState(phase: "ready", name: "Work", display_id: "display-B", local_input: 17, remote_input: 15, workspace: editWorkspace, profile_id: "profile-B", target_profile_id: "profile-B", draft_id: "edit-test", editing_saved_profile: true)
+store.snapshot = core.current
+store.restoreDraft(core.current.setup!, force: true)
+store.draft.mode = "single"; store.draft.remoteOS = "windows"
+store.draft.localObserved = false; store.draft.remoteObserved = false
+expect(store.setupEnableBlocker != nil, "disabled enable explains missing visual observations")
+store.draft.localObserved = true; store.draft.remoteObserved = true; store.draft.peerPaused = true
+expect(store.setupEnableBlocker == nil, "all single-controller confirmations allow one-step enable")
+core.actions = []
+store.finishSetup(enable: true)
+expect(core.actions.map { $0["type"] as! String } == ["setup_workspace", "setup_evidence", "setup_finish"], "one enable action records confirmations before committing the same profile")
+store.snapshot = core.current
+store.startSetupTest("local")
+expect(store.setupTestCountdown != nil && core.actions.last?["type"] as? String != "setup_test", "local reclaim test waits for user to show the other input")
+_ = store.action(["type": "edit", "enabled": false])
+expect(store.setupTestCountdown == nil, "editing setup cancels a delayed switch test")
+core.current.setup = nil; store.snapshot = core.current; core.actions = []
 
 var workspace = Workspace(); workspace.workspace_id = "pk-test"; workspace.local_name = "Old laptop"; workspace.remote_name = "Old desktop"; workspace.remote_os = "windows"; workspace.mode = "dual"
 let setup = SetupState(phase: "display", name: "Old Home", display_id: "display-A", workspace: workspace, profile_id: "draft-A")

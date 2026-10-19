@@ -299,6 +299,7 @@ struct WorkspacesView: View {
                             if !model.isActiveProfile(profile) {
                                 Button(model.text("Use this profile", "使用此配置")) { model.useProfile(profile) }.buttonStyle(.borderedProminent).disabled(!model.canChooseProfiles)
                             }
+                            Button(model.text("Edit setup…", "编辑设置…")) { model.editProfileSetup() }.disabled(!model.canConfigure || model.snapshot?.editing == true)
                             Button(model.text("Edit profile details…", "编辑配置详情…")) { model.editProfileDetails() }.disabled(!model.canConfigure || model.snapshot?.editing == true)
                         }
                         Muted(model.text("Changes this computer only; the other app is not updated.", "仅在这台电脑切换配置；另一台不会同步更改。"))
@@ -319,8 +320,19 @@ struct SetupView: View {
     private var phase: String { model.snapshot?.setup?.phase ?? "names" }
     private var mappingReady: Bool { model.snapshot?.setup?.local_input != nil && model.snapshot?.setup?.remote_input != nil }
     private var usbReady: Bool { ["usb_ready", "reading_input", "exchange", "ready"].contains(phase) }
+    @State private var editDetails = false
     var body: some View {
         Group {
+        if model.snapshot?.setup?.editing_saved_profile == true && !editDetails {
+            SectionHeading(title: model.text("Enable automatic switching", "启用自动切换"), subtitle: model.draft.name + model.text(" · Saved connections are retained. Editing pauses automatic switching on this Mac.", " · 已保留原有连接。编辑期间，本机自动切换暂停。"))
+            Surface { reviewStep }
+            HStack {
+                Button(model.text("Change connection or installation plan", "修改连接或运行方案")) { editDetails = true; model.draft.step = 2 }
+                Spacer()
+                Button(model.text("Finish later", "稍后继续")) { model.suspendSetup() }
+                Button(model.text("Cancel editing", "取消编辑")) { discard = true }
+            }
+        } else {
         SectionHeading(title: model.text("Connect your computers", "连接两台电脑"), subtitle: model.text("One shared monitor, one physical USB switch, two computers kept awake.", "一个共享显示器，一个实体 USB 切换器，两台保持唤醒的电脑。"))
         if model.snapshot?.draft_available == true && model.snapshot?.setup == nil {
             Notice(title: model.text("A saved setup is waiting", "有一份已保存的设置"), detail: model.text("Resume with fresh device observations. Pending hardware operations are never replayed.", "继续时重新观察设备，不会重放待处理的硬件操作。"))
@@ -357,6 +369,7 @@ struct SetupView: View {
                 if model.snapshot?.setup != nil { Button(model.text("Discard draft…", "放弃草稿…"), role: .destructive) { discard = true } }
             }
             Muted(model.text("Setup pauses this instance only. The other computer is not paused or activated remotely.", "设置仅暂停本机。另一台不会被远程暂停或启用。"))
+        }
         }
         }
         .confirmationDialog(model.text("Discard this unfinished setup?", "放弃这份未完成的设置？"), isPresented: $discard) {
@@ -414,7 +427,7 @@ struct SetupView: View {
                 if ["display", "usb_retry"].contains(phase) {
                     Button(model.text(phase == "usb_retry" ? "USB is here — retry detection" : "USB is here — begin detection", phase == "usb_retry" ? "USB 已连接本机 — 重新检测" : "USB 已连接本机 — 开始检测")) { _ = model.action(["type": "setup_usb_start"]) }.buttonStyle(.borderedProminent)
                 } else if usbReady {
-                    Label(model.text("Switch learned from departure and return", "已通过离开和返回识别切换器"), systemImage: "checkmark.circle").foregroundStyle(.secondary)
+                    Label(model.snapshot?.setup?.target_profile_id != nil ? model.text("Saved USB switch binding", "已保存的 USB 切换器绑定") : model.text("Switch learned from departure and return", "已通过离开和返回识别切换器"), systemImage: "checkmark.circle").foregroundStyle(.secondary)
                     Button(model.text("Continue to input mapping", "继续设置输入映射")) { model.draft.step = 2 }.buttonStyle(.borderedProminent)
                 } else { HStack { ProgressView().controlSize(.small); Text(model.text("Observing device changes…", "正在观察设备变化…")).font(.callout) } }
             }
@@ -479,31 +492,51 @@ struct SetupView: View {
     }
     private var reviewStep: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text(model.draft.name).font(.title2).fontWeight(.semibold)
-            DetailRow(title: model.draft.localName, subtitle: model.text("This computer · local binding", "本机 · 本地绑定"), value: model.snapshot?.setup?.local_input.map { model.text("Observed input ", "已观察输入 ") + String($0) } ?? model.text("Incomplete", "未完成"))
-            DetailRow(title: model.draft.remoteName, subtitle: model.text("Other computer", "另一台电脑"), value: model.snapshot?.setup?.remote_input.map { model.text("Mapped input ", "已映射输入 ") + String($0) } ?? model.text("Incomplete", "未完成"))
-            DetailRow(title: model.text("Installation plan", "运行方案"), value: model.draft.mode == "dual" ? model.text("Both computers", "两台电脑") : (model.draft.singleController == "local" ? model.draft.localName : model.draft.remoteName))
-            Divider()
-            Text(model.text("Record observations you already made", "记录你已经完成的观察")).font(.headline)
-            Muted(model.text("Saving this page performs no switch test. Confirm only pictures you actually observed with this exact cabling and controller arrangement. A command returning successfully is not enough.", "保存此页不会执行切换测试。仅确认你在此设备连接和运行方案下实际看到的画面。指令成功返回并不足以验证。"))
-            Toggle(model.text("I observed the display switch to \(model.draft.localName)", "我已观察到显示器切换至\(model.draft.localName)"), isOn: $model.draft.localObserved)
-            Toggle(model.text("I observed the display switch to \(model.draft.remoteName)", "我已观察到显示器切换至\(model.draft.remoteName)"), isOn: $model.draft.remoteObserved)
+            Text(model.text("Check that PortKey can switch the picture", "检查 PortKey 能否切换画面")).font(.title2).fontWeight(.semibold)
+            Muted(model.text("These buttons send real input-switch commands. Input readings and manual changes in the monitor menu do not prove PortKey can switch. Confirm only pictures you actually saw, including earlier checks with these same connections.", "下面的测试会实际发送切换指令。读取输入、或用显示器菜单切换，都不能证明 PortKey 能切换。仅确认你实际看到的结果；相同连接下此前的成功测试也可以确认。"))
             if model.draft.mode == "single" {
-                Toggle(model.text("I paused or quit PortKey on the other computer during those checks", "上述检查期间，我已在另一台暂停或退出 PortKey"), isOn: $model.draft.peerPaused)
+                Toggle(model.text("PortKey on the other computer is quit, paused, or not installed", "另一台的 PortKey 已退出、暂停或未安装"), isOn: $model.draft.peerPaused).toggleStyle(.checkbox)
+                Muted(model.text("Keep this Mac awake and USB connected here during testing. It must be able to switch from either picture.", "测试时保持 Mac 唤醒、USB 连接本机。单机控制必须能从另一台画面切回。"))
             }
-            LabeledField(title: model.text("Evidence note (optional)", "观察说明（可选）"), placeholder: model.text("What you observed, and when", "观察结果与时间"), value: $model.draft.evidenceNote)
-            Button(model.text("Save these observation records", "保存这些观察记录")) { model.saveEvidence() }.disabled(!mappingReady)
-            DetailRow(title: model.text("Saved qualification", "已保存的验证状态"), value: model.verificationTitle(model.snapshot?.setup?.workspace?.verification))
+            VStack(alignment: .leading, spacing: 9) {
+                Text(model.text("1. Switch to ", "1. 切到 ") + model.setupRemoteLabel).font(.headline)
+                Button(model.text("Test switching to ", "测试切到 ") + model.setupRemoteLabel) { model.startSetupTest("remote") }.disabled(!model.canTestSetup || (model.draft.mode == "single" && !model.draft.peerPaused))
+                Muted(model.text("Watch the picture. Then use the monitor's input menu to return to this Mac and record the result. Do not move USB.", "观察画面是否切换。然后用显示器输入菜单返回 Mac，再确认结果；不需要切换 USB。"))
+                Toggle(model.text("I saw PortKey switch the picture to ", "我看到 PortKey 将画面切到了 ") + model.setupRemoteLabel, isOn: $model.draft.remoteObserved).toggleStyle(.checkbox)
+            }
+            Divider()
+            VStack(alignment: .leading, spacing: 9) {
+                Text(model.text("2. Switch back to ", "2. 切回 ") + model.setupLocalLabel).font(.headline)
+                if let seconds = model.setupTestCountdown {
+                    Text(model.text("Switching back in ", "将在 ") + String(seconds) + model.text(" seconds. Show the other computer using the monitor menu now.", " 秒后尝试切回。现在请用显示器菜单显示另一台画面。"))
+                    Button(model.text("Cancel test", "取消测试")) { model.cancelSetupTest() }
+                } else {
+                    Button(model.text("Test switching back in 10 seconds", "测试 10 秒后切回本机")) { model.startSetupTest("local") }.disabled(!model.canTestSetup || (model.draft.mode == "single" && !model.draft.peerPaused))
+                }
+                Muted(model.text("After starting, use the monitor menu to show the other computer within 10 seconds. PortKey will then try to bring this Mac back. If it does not, return with the monitor menu; leave this result unconfirmed.", "点击后，在 10 秒内用显示器菜单显示另一台电脑。PortKey 随后尝试切回 Mac。若未切回，用显示器菜单返回，并保留此项未确认。Mac 画面原本就在显示时的同输入请求不算通过。"))
+                Toggle(model.text("I saw PortKey bring this Mac back from the other computer's picture", "我看到 PortKey 从另一台画面切回了 Mac"), isOn: $model.draft.localObserved).toggleStyle(.checkbox)
+            }
+            if let result = model.snapshot?.display_state?.result, !["unconfirmed", "idle"].contains(result) {
+                Muted(result == "pending" ? model.text("Sending the test command…", "正在发送测试指令…") : model.inputSubtitle)
+            }
+            if let reason = model.setupEnableBlocker {
+                Notice(title: model.text("Not enabled yet", "尚未启用"), detail: reason)
+            } else {
+                Label(model.text("Ready to enable on this Mac", "可以在本机启用"), systemImage: "checkmark.circle").foregroundStyle(productAccent)
+            }
             HStack(spacing: 12) {
-                Button(model.text("Save · automatic off", "保存 · 自动切换关闭")) { model.finishSetup(enable: false) }.disabled(!mappingReady)
-                Button(model.text("Save and enable on this computer", "保存并在本机启用")) { model.finishSetup(enable: true) }.buttonStyle(.borderedProminent).disabled(!qualified)
+                Button(model.text("Enable automatic switching", "启用自动切换")) { model.finishSetup(enable: true) }.buttonStyle(.borderedProminent).disabled(model.setupEnableBlocker != nil)
+                Button(model.text("Save without enabling", "仅保存，暂不启用")) { model.finishSetup(enable: false) }.disabled(!mappingReady)
             }
-            Muted(model.text("Enabling is local only. In a two-controller setup, finish and enable the other instance separately. Closing a controller removes its automatic service.", "启用仅作用于本机。双机方案需在另一台分别完成并启用。退出控制电脑上的程序会停止其自动服务。"))
+            Muted(model.text("Enabling saves your confirmations and this profile together. In two-controller mode, enable the other computer separately.", "启用会一起保存这些确认和当前配置，无需另存观察记录。双机控制需在另一台分别启用。"))
+            ExpandableDetails(model.text("Saved connections and notes", "已保存的连接与备注"), language: model.language) {
+                VStack(alignment: .leading, spacing: 10) {
+                    DetailRow(title: model.setupLocalLabel, value: model.snapshot?.setup?.local_input.map { model.text("Saved input ", "已保存输入 ") + String($0) } ?? model.text("Incomplete", "未完成"))
+                    DetailRow(title: model.setupRemoteLabel, value: model.snapshot?.setup?.remote_input.map { model.text("Saved input ", "已保存输入 ") + String($0) } ?? model.text("Incomplete", "未完成"))
+                    LabeledField(title: model.text("Note (optional)", "备注（可选）"), placeholder: model.text("What you observed", "实际观察结果"), value: $model.draft.evidenceNote)
+                }.padding(.top, 8)
+            }
         }
-    }
-    private var qualified: Bool {
-        guard let workspace = model.snapshot?.setup?.workspace else { return false }
-        return mappingReady && ["single_observed", "dual_observed"].contains(workspace.verification) && (workspace.mode != "single" || workspace.single_controller == "local")
     }
 }
 

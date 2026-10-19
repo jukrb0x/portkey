@@ -75,6 +75,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     @objc private func quit() { NSApp.terminate(nil) }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { openSettings(); return true }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        model.cancelSetupTest()
         sender.orderOut(nil)
         if sender === window { NSApp.setActivationPolicy(.accessory) }
         return false

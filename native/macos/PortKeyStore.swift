@@ -7,7 +7,7 @@ enum BridgeError: Error { case unavailable, invalidResponse }
 
 final class PortKeyStore: NSObject, ObservableObject {
     @Published var snapshot: Snapshot?
-    @Published var page: Page = .overview
+    @Published var page: Page = .overview { didSet { if page != .setup { cancelSetupTest() } } }
     @Published var draft = WorkspaceDraft()
     @Published var selectedProfileID: String?
     @Published var errorMessage: String?
@@ -23,6 +23,9 @@ final class PortKeyStore: NSObject, ObservableObject {
     @Published var lastActionWarning: String?
     var onUpdate: (() -> Void)?
     var openWindow: (() -> Void)?
+    @Published var setupTestCountdown: Int?
+    private var setupTestTimer: Timer?
+    private var setupTestEpoch: UInt64?
     private let core: CoreSession
     private var coreStarted = false
     private let preferences: UserDefaults
@@ -41,6 +44,50 @@ final class PortKeyStore: NSObject, ObservableObject {
     var remoteName: String { snapshot?.remoteName ?? text("Other computer", "另一台电脑") }
     func computerName(in profile: SavedProfile, local: Bool) -> String {
         ComputerNamePresentation.name(local: local, saved: profile.workspace, runtime: isActiveProfile(profile) ? snapshot?.workspace : nil, language: language)
+    }
+    var setupLocalLabel: String { draft.localName == "This computer" ? text("Mac (this computer)", "Mac（本机）") : draft.localName }
+    var setupRemoteLabel: String { draft.remoteName == "Other computer" ? (draft.remoteOS == "windows" ? "Windows" : "Mac") : draft.remoteName }
+    var canTestSetup: Bool {
+        canConfigure && snapshot?.setup?.phase == "ready" && snapshot?.sleeping == false
+            && snapshot?.lifecycle_ok == true && snapshot?.display_state?.result != "pending" && setupTestCountdown == nil
+    }
+    var setupEnableBlocker: String? {
+        if snapshot?.setup?.local_input == nil || snapshot?.setup?.remote_input == nil { return text("Input mapping is incomplete. Return to connections to finish it.", "输入映射不完整，请返回连接设置完成映射。") }
+        if snapshot?.sleeping == true || snapshot?.lifecycle_ok != true { return text("Wake this Mac and restore power monitoring before enabling.", "请唤醒 Mac 并恢复电源监听后再启用。") }
+        if setupTestCountdown != nil || snapshot?.display_state?.result == "pending" { return text("Wait for the switch test to finish, then confirm the picture.", "请等待切换测试结束，再确认实际画面。") }
+        if draft.mode == "single" && draft.singleController != "local" { return text("This profile is controlled by the other computer. Enable it there, or choose this Mac as controller.", "此配置由另一台电脑控制。请在那台启用，或将控制电脑改为本机。") }
+        if !["single", "dual"].contains(draft.mode) || !["windows", "macos"].contains(draft.remoteOS) { return text("Choose where PortKey runs and the other computer's system.", "请选择 PortKey 的运行方案和另一台电脑的系统。") }
+        if draft.mode == "dual" && snapshot?.setup?.workspace?.peer_confirmed != true { return text("Confirm the other computer's setup record before enabling both controllers.", "双机控制需要先确认另一台的设置记录，请返回运行方案完成。") }
+        if !draft.localObserved || !draft.remoteObserved { return text("Confirm that PortKey actually switched to both computers. Reading an input or changing it in the monitor menu does not complete this check.", "请确认 PortKey 已实际切换到两台电脑的画面。读取输入或用显示器菜单切换，都不算完成检查。") }
+        if draft.mode == "single" && !draft.peerPaused { return text("Confirm PortKey on the other computer was paused or quit during these tests.", "请确认上述测试期间，另一台的 PortKey 已暂停或退出；未安装也符合此条件。") }
+        return nil
+    }
+    func cancelSetupTest() {
+        setupTestTimer?.invalidate(); setupTestTimer = nil; setupTestCountdown = nil; setupTestEpoch = nil
+    }
+    func startSetupTest(_ target: String) {
+        guard canTestSetup, let setup = snapshot?.setup, let id = setup.draft_id,
+              let epoch = snapshot?.lifecycle_epoch else { return }
+        if target == "remote" {
+            draft.remoteObserved = false
+            _ = action(["type": "setup_test", "target": target, "draft_id": id, "expected_epoch": epoch])
+            return
+        }
+        draft.localObserved = false
+        let testDraft = draft
+        let started = ProcessInfo.processInfo.systemUptime
+        setupTestCountdown = 10
+        setupTestEpoch = epoch
+        setupTestTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            guard self.snapshot?.setup?.draft_id == id, self.snapshot?.lifecycle_epoch == epoch,
+                  self.snapshot?.sleeping == false, self.draft == testDraft,
+                  ProcessInfo.processInfo.systemUptime - started <= 15 else { self.cancelSetupTest(); return }
+            let remaining = (self.setupTestCountdown ?? 1) - 1
+            if remaining > 0 { self.setupTestCountdown = remaining; return }
+            self.cancelSetupTest()
+            _ = self.action(["type": "setup_test", "target": "local", "draft_id": id, "expected_epoch": epoch])
+        }
     }
     var canShowSelectedPage: Bool { snapshot?.startup_error == nil || page == .diagnostics }
     var canCollectDiagnostics: Bool { bridgeFailure == nil && snapshot != nil }
@@ -167,6 +214,7 @@ final class PortKeyStore: NSObject, ObservableObject {
         guard bridgeFailure == nil else { return }
         do {
             let next = try core.snapshot()
+            if let epoch = setupTestEpoch, next.lifecycle_epoch != epoch || next.sleeping || next.setup?.draft_id != snapshot?.setup?.draft_id { cancelSetupTest() }
             if snapshot != next {
                 if let phase = next.setup?.phase, ["display", "usb_retry"].contains(phase), draft.step > 1 { draft.step = 1; draft.clearAttestations() }
                 snapshot = next
@@ -186,6 +234,7 @@ final class PortKeyStore: NSObject, ObservableObject {
         } catch { failBridge(error) }
     }
     @discardableResult func action(_ value: [String: Any]) -> [String: Any]? {
+        if let type = value["type"] as? String, !["usb_refresh", "usb_notifications", "refresh"].contains(type) { cancelSetupTest() }
         precondition(Thread.isMainThread)
         guard bridgeFailure == nil || value["type"] as? String == "quit" else { return nil }
         do {
@@ -203,6 +252,7 @@ final class PortKeyStore: NSObject, ObservableObject {
         onUpdate?()
     }
     func stop() {
+        cancelSetupTest()
         precondition(Thread.isMainThread)
         usbNotifications.stop(); usbNotifications.onChange = nil
         timer?.invalidate(); timer = nil
@@ -238,7 +288,7 @@ final class PortKeyStore: NSObject, ObservableObject {
     func show(_ destination: Page) { page = destination; openWindow?() }
     func beginSetup() {
         if snapshot?.setup != nil { page = .setup; return }
-        if snapshot?.draft_available == true { if action(["type": "setup_resume"]) != nil { if let setup = snapshot?.setup { restoreDraft(setup) }; draft.step = localDraftPending ? 0 : 1; page = .setup }; return }
+        if snapshot?.draft_available == true { if action(["type": "setup_resume"]) != nil { if let setup = snapshot?.setup { restoreDraft(setup) }; draft.clearAttestations(); draft.step = localDraftPending ? 0 : (snapshot?.setup?.phase == "ready" ? 3 : 1); page = .setup }; return }
         page = .setup; persistDraft()
     }
     func continueNames() {
@@ -274,17 +324,19 @@ final class PortKeyStore: NSObject, ObservableObject {
         draft = WorkspaceDraft(); persistDraft(); page = .overview
     }
     func finishSetup(enable: Bool) {
+        if enable, let reason = setupEnableBlocker { errorMessage = reason; return }
         guard updateSetupWorkspace() else { return }
+        if enable && !saveEvidence(synchronize: false) { return }
         guard action(["type": "setup_finish", "enable": enable]) != nil else { return }
         draft = WorkspaceDraft(); persistDraft(); page = .overview
     }
-    func saveEvidence() {
-        guard updateSetupWorkspace() else { return }
+    @discardableResult func saveEvidence(synchronize: Bool = true) -> Bool {
+        if synchronize && !updateSetupWorkspace() { return false }
         var evidence = Evidence()
         evidence.local = DirectionEvidence(result: draft.localObserved ? "observed" : "unverified", source: draft.localObserved ? "user_observed" : "none", note: draft.evidenceNote)
         evidence.remote = DirectionEvidence(result: draft.remoteObserved ? "observed" : "unverified", source: draft.remoteObserved ? "user_observed" : "none", note: draft.evidenceNote)
         let verification = draft.localObserved && draft.remoteObserved ? (draft.mode == "single" ? "single_observed" : "dual_observed") : "not_checked"
-        _ = action(["type": "setup_evidence", "evidence": json(evidence), "verification": verification, "peer_paused_confirmed": draft.peerPaused])
+        return action(["type": "setup_evidence", "evidence": json(evidence), "verification": verification, "peer_paused_confirmed": draft.peerPaused]) != nil
     }
     func previewPeer() { _ = action(["type": "setup_peer_preview", "record": draft.peerCode]) }
     func copyRecord() {
@@ -299,6 +351,23 @@ final class PortKeyStore: NSObject, ObservableObject {
     }
     func toggleAutomation(_ enabled: Bool) { _ = action(["type": "automatic", "enabled": enabled]) }
     func setLanguage(_ language: String) { _ = action(["type": "language", "value": language]) }
+    func editProfileSetup() {
+        guard let profile = selectedProfile else { return }
+        guard action(["type": "setup_edit", "profile_id": profile.id]) != nil,
+              let setup = snapshot?.setup else { return }
+        localDraftPending = false
+        draft = WorkspaceDraft()
+        restoreDraft(setup, force: true)
+        if let workspace = setup.workspace {
+            draft.localObserved = setup.qualification_current == true && workspace.evidence.local.result == "observed"
+            draft.remoteObserved = setup.qualification_current == true && workspace.evidence.remote.result == "observed"
+            draft.peerPaused = setup.qualification_current == true && workspace.peer_paused_confirmed
+            draft.evidenceNote = workspace.evidence.local.note
+        }
+        draft.step = 3
+        persistDraft()
+        page = .setup
+    }
     func editProfileDetails() {
         guard let profile = selectedProfile else { return }
         let workspace = profile.workspace ?? (isActiveProfile(profile) ? snapshot?.workspace : nil) ?? Workspace()

@@ -886,7 +886,7 @@ impl Controller {
         if epoch != self.lifecycle_epoch {
             self.lifecycle_epoch = epoch;
             if let Some(setup) = &mut self.setup {
-                setup.interrupted();
+                setup.interrupt_with_profiles(&self.profiles);
             }
             self.reset();
             self.inventory = None;
@@ -894,7 +894,7 @@ impl Controller {
         }
         if self.last_frame.elapsed().unwrap_or(Duration::MAX) > Duration::from_secs(5) {
             if let Some(setup) = &mut self.setup {
-                setup.interrupted();
+                setup.interrupt_with_profiles(&self.profiles);
             }
             self.reset();
             self.worker.refresh();
@@ -914,7 +914,7 @@ impl Controller {
         };
         if resumed {
             if let Some(setup) = &mut self.setup {
-                setup.interrupted();
+                setup.interrupt_with_profiles(&self.profiles);
             }
             self.reset();
             self.inventory = None;
@@ -956,8 +956,11 @@ impl Controller {
                             }
                         } else {
                             self.worker.invalidate();
-                            setup.interrupted();
-                            setup.fail("Selected display disconnected or became ambiguous. Reconnect it and restart USB detection.");
+                            self.display_state = json!({"result":"idle","target":null,"input":null,"visual_confirmed":false});
+                            setup.interrupt_with_profiles(&self.profiles);
+                            if !setup.ready {
+                                setup.fail("Selected display disconnected or became ambiguous. Reconnect it and restart USB detection.");
+                            }
                         }
                     }
                     self.inventory_received = Some(Instant::now());
@@ -1005,7 +1008,7 @@ impl Controller {
                     self.inventory = None;
                     self.inventory_received = None;
                     if let Some(setup) = &mut self.setup {
-                        setup.interrupted();
+                        setup.interrupt_with_profiles(&self.profiles);
                     }
                     if !self.editing {
                         self.config = None;
@@ -1136,6 +1139,11 @@ impl Controller {
             .to_owned();
         }
         let mut setup = json!(self.setup);
+        if let Some(draft) = &self.setup {
+            setup["qualification_current"] = json!(draft
+                .config(&self.language)
+                .is_ok_and(|config| draft.workspace.current(&config)));
+        }
         if let Some(message) = setup.get("message").and_then(Value::as_str) {
             setup["message"] = json!(crate::messages::display(
                 message,
@@ -1158,7 +1166,7 @@ impl Controller {
             "error": self.error || self.startup_error.is_some(),
             "startup_error": self.startup_error.as_ref().map(|e| crate::messages::display(e, self.language == "zh-Hans")),
             "controls_available": self.startup_error.is_none() && !self.quitting,
-            "lifecycle_ok": self.lifecycle_ok, "sleeping": (self.lifecycle)().1,
+            "lifecycle_ok": self.lifecycle_ok, "sleeping": (self.lifecycle)().1, "lifecycle_epoch": self.lifecycle_epoch,
             "language": self.language, "config_path": self.path.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
             "editing": self.editing, "setup": setup
         })
@@ -1224,6 +1232,63 @@ impl Controller {
             }
         }
         match action {
+            Action::SetupEdit { profile_id } => {
+                if self.editing || (!self.draft_completed && self.draft_path()?.exists()) {
+                    return Err("Finish or discard the existing setup draft first.".into());
+                }
+                self.require_profile_id(&profile_id)?;
+                let profile = self
+                    .profiles
+                    .profiles
+                    .iter()
+                    .find(|p| p.profile_id == profile_id)
+                    .unwrap();
+                let setup = crate::setup::Setup::edit_profile(profile)?;
+                self.reset();
+                self.policy
+                    .set_automatic(false, self.started.elapsed().as_millis() as u64);
+                self.editing = true;
+                self.setup = Some(setup);
+            }
+            Action::SetupTest {
+                target,
+                draft_id,
+                expected_epoch,
+            } => {
+                let (epoch, sleeping) = (self.lifecycle)();
+                if sleeping
+                    || !self.lifecycle_ok
+                    || epoch != expected_epoch
+                    || self.lifecycle_epoch != expected_epoch
+                {
+                    return Err("Test cancelled because power state changed. Start the test again while awake.".into());
+                }
+                let setup = self.setup.as_ref().ok_or("Start setup first.")?;
+                if setup.draft_id != draft_id || !self.editing {
+                    return Err("The setup changed. Start the test again.".into());
+                }
+                let config = setup.config(&self.language)?;
+                self.validate_config(&config)?;
+                if self.inventory.as_ref().is_none_or(|inventory| {
+                    inventory
+                        .displays
+                        .iter()
+                        .filter(|d| d.id == config.display_id)
+                        .count()
+                        != 1
+                }) {
+                    return Err("Reconnect the profile's display before testing.".into());
+                }
+                self.worker.invalidate();
+                self.pending_display_state(&config, target.into());
+                let mut display_ids = self.profile_ids();
+                if !display_ids.contains(&config.display_id) {
+                    display_ids.push(config.display_id.clone());
+                }
+                self.worker.submit(config, target.into(), None, display_ids);
+                self.error = false;
+                self.status = self.text("Switch test started. Confirm the actual picture; command success alone is not verification.", "已开始切换测试，请确认实际画面；指令成功不代表画面已切换。").into();
+            }
             Action::SetupBegin {
                 display_id,
                 name,
@@ -1331,6 +1396,12 @@ impl Controller {
                     .peer_code(&code)?;
             }
             Action::SetupFinish { enable } => {
+                if enable && (!self.lifecycle_ok || (self.lifecycle)().1) {
+                    return Err(
+                        "Finish setup and restore power monitoring before enabling automation."
+                            .into(),
+                    );
+                }
                 let setup = self.setup.as_ref().ok_or("Start setup first.")?;
                 let mut config = setup.config(&self.language)?;
                 let mut workspace = setup.workspace.clone();
@@ -1481,7 +1552,7 @@ impl Controller {
                 if self.draft_completed {
                     return Err("This setup draft was already saved and cannot be resumed. Start a new setup to make changes.".into());
                 }
-                let setup = crate::setup::Setup::load_draft(&self.draft_path()?)?;
+                let setup = crate::setup::Setup::load_draft(&self.draft_path()?, &self.profiles)?;
                 if let Some(id) = &setup.target_profile_id {
                     self.require_profile_id(id)?;
                 }
@@ -2110,6 +2181,16 @@ enum Action {
         #[serde(default)]
         name: Option<String>,
     },
+    #[serde(rename = "setup_test")]
+    SetupTest {
+        target: NativeTarget,
+        draft_id: String,
+        expected_epoch: u64,
+    },
+    #[serde(rename = "setup_edit")]
+    SetupEdit {
+        profile_id: String,
+    },
     #[serde(rename = "setup_draft_begin")]
     SetupDraftBegin {
         name: String,
@@ -2278,6 +2359,249 @@ mod tests {
         setup.observe(&hubs, 5000);
         assert_eq!(setup.phase, "usb_ready");
     }
+    #[test]
+    fn edit_saved_setup_preserves_mapping_and_enables_same_profile() {
+        let mut c = two_desks();
+        discover(&mut c, &[1], false);
+        let original = c.profiles.profiles[1].clone();
+        let other = serde_json::to_value(&c.profiles.profiles[0]).unwrap();
+        let id = original.profile_id.clone();
+        c.profiles.profiles[1].workspace = Some(crate::product::Workspace {
+            remote_os: "windows".into(),
+            mode: "single".into(),
+            ..Default::default()
+        });
+        assert_eq!(
+            c.action(json!({"type":"setup_edit","profile_id":id}))["ok"],
+            true
+        );
+        let setup = c.setup.as_ref().unwrap();
+        assert_eq!(setup.profile_id, id);
+        assert_eq!(setup.target_profile_id.as_deref(), Some(id.as_str()));
+        assert_eq!(setup.phase, "ready");
+        assert!(crate::product::same_binding(
+            &setup.config("en").unwrap(),
+            &original.config
+        ));
+        assert!(c.editing);
+        assert!(c.worker.shared.0.lock().unwrap().jobs.take().is_none());
+        assert!(c.worker.shared.0.lock().unwrap().probe.is_none());
+        assert_eq!(
+            c.action(json!({"type":"setup_finish","enable":true}))["ok"],
+            false
+        );
+        let evidence = json!({"local":{"result":"observed","source":"user_observed"},"remote":{"result":"observed","source":"user_observed"}});
+        assert_eq!(c.action(json!({"type":"setup_evidence","evidence":evidence,"verification":"single_observed","peer_paused_confirmed":true}))["ok"], true);
+        assert_eq!(
+            c.action(json!({"type":"setup_finish","enable":true}))["ok"],
+            true
+        );
+        assert_eq!(c.profiles.profiles.len(), 2);
+        let saved = c
+            .profiles
+            .profiles
+            .iter()
+            .find(|p| p.profile_id == id)
+            .unwrap();
+        assert_eq!(saved.name, original.name);
+        assert!(saved.config.automatic);
+        assert!(crate::product::same_binding(
+            &saved.config,
+            &original.config
+        ));
+        assert_eq!(
+            serde_json::to_value(&c.profiles.profiles[0]).unwrap(),
+            other
+        );
+    }
+
+    #[test]
+    fn edit_saved_setup_cancel_preserves_profiles_and_rejects_missing_target() {
+        let mut c = enrolled();
+        discover(&mut c, &[0], true);
+        let before = serde_json::to_value(&c.profiles).unwrap();
+        let id = c.profiles.profiles[0].profile_id.clone();
+        assert_eq!(
+            c.action(json!({"type":"setup_edit","profile_id":"missing"}))["ok"],
+            false
+        );
+        assert!(!c.editing);
+        assert_eq!(
+            c.action(json!({"type":"setup_edit","profile_id":id}))["ok"],
+            true
+        );
+        assert_eq!(
+            c.action(json!({"type":"setup_edit","profile_id":id}))["ok"],
+            false
+        );
+        assert_eq!(c.action(json!({"type":"setup_suspend"}))["ok"], true);
+        assert_eq!(c.action(json!({"type":"setup_resume"}))["ok"], true);
+        let restored = c.setup.as_ref().unwrap();
+        assert!(restored.ready);
+        assert!(crate::product::same_binding(
+            &restored.config("en").unwrap(),
+            &c.profiles.profiles[0].config
+        ));
+        assert_eq!(c.action(json!({"type":"setup_cancel"}))["ok"], true);
+        assert_eq!(serde_json::to_value(&c.profiles).unwrap(), before);
+    }
+
+    #[test]
+    fn edit_saved_setup_resume_rejects_changed_binding_and_sleep_cancels_commands() {
+        let mut c = enrolled();
+        discover(&mut c, &[0], true);
+        let id = c.profiles.profiles[0].profile_id.clone();
+        assert_eq!(
+            c.action(json!({"type":"setup_edit","profile_id":id}))["ok"],
+            true
+        );
+        assert_eq!(c.action(json!({"type":"setup_suspend"}))["ok"], true);
+        c.profiles.profiles[0].config.remote_input = 7;
+        assert_eq!(c.action(json!({"type":"setup_resume"}))["ok"], true);
+        assert!(!c.setup.as_ref().unwrap().ready);
+        assert!(c.setup.as_ref().unwrap().workspace.binding.is_none());
+        c.action(json!({"type":"setup_cancel"}));
+        assert_eq!(
+            c.action(json!({"type":"setup_edit","profile_id":id}))["ok"],
+            true
+        );
+        c.lifecycle = || (1, true);
+        c.snapshot();
+        assert!(c.setup.as_ref().unwrap().ready);
+        assert!(c.worker.shared.0.lock().unwrap().jobs.take().is_none());
+    }
+
+    #[test]
+    fn interrupted_saved_edit_draft_recovers_enrollment_without_inventing_observations() {
+        let mut c = enrolled();
+        discover(&mut c, &[0], true);
+        let id = c.profiles.profiles[0].profile_id.clone();
+        c.action(json!({"type":"setup_edit","profile_id":id}));
+        c.setup.as_mut().unwrap().interrupted();
+        assert_eq!(c.action(json!({"type":"setup_suspend"}))["ok"], true);
+        assert_eq!(c.action(json!({"type":"setup_resume"}))["ok"], true);
+        let setup = c.setup.as_ref().unwrap();
+        assert!(setup.ready);
+        assert!(crate::product::same_binding(
+            &setup.config("en").unwrap(),
+            &c.profiles.profiles[0].config
+        ));
+        assert_eq!(setup.workspace.verification, "not_checked");
+        assert_eq!(setup.workspace.evidence.local.result, "unverified");
+        assert!(setup.workspace.binding.is_none());
+    }
+
+    #[test]
+    fn saved_edit_tests_use_enrolled_mapping_without_qualifying_or_enabling() {
+        let mut c = enrolled();
+        discover(&mut c, &[0], true);
+        let before = serde_json::to_value(&c.profiles).unwrap();
+        let id = c.profiles.profiles[0].profile_id.clone();
+        c.action(json!({"type":"setup_edit","profile_id":id}));
+        let draft_id = c.setup.as_ref().unwrap().draft_id.clone();
+        assert_eq!(c.action(json!({"type":"setup_test","target":"remote","draft_id":draft_id,"expected_epoch":0}))["ok"], true);
+        let mut state = c.worker.shared.0.lock().unwrap();
+        let request = state.jobs.take().unwrap();
+        assert_eq!(request.1.target, Target::Remote);
+        assert!(crate::product::same_binding(
+            &request.1.config,
+            &c.profiles.profiles[0].config
+        ));
+        assert!(request.1.expected.is_none());
+        assert!(!request.1.config.automatic);
+        drop(state);
+        assert_eq!(c.snapshot()["display_state"]["result"], "pending");
+        assert_eq!(serde_json::to_value(&c.profiles).unwrap(), before);
+        c.action(json!({"type":"setup_cancel"}));
+        assert_eq!(
+            c.action(
+                json!({"type":"setup_test","target":"local","draft_id":draft_id,"expected_epoch":0})
+            )["ok"],
+            false
+        );
+    }
+
+    #[test]
+    fn saved_edit_display_loss_clears_pending_test_and_allows_retry() {
+        let mut c = enrolled();
+        discover(&mut c, &[0], true);
+        let id = c.profiles.profiles[0].profile_id.clone();
+        c.action(json!({"type":"setup_edit","profile_id":id}));
+        let draft = c.setup.as_ref().unwrap().draft_id.clone();
+        assert_eq!(
+            c.action(
+                json!({"type":"setup_test","target":"remote","draft_id":draft,"expected_epoch":0})
+            )["ok"],
+            true
+        );
+        discover(&mut c, &[], true);
+        assert_ne!(c.snapshot()["display_state"]["result"], "pending");
+        assert!(c.setup.as_ref().unwrap().ready);
+        discover(&mut c, &[0], true);
+        assert_eq!(
+            c.action(
+                json!({"type":"setup_test","target":"local","draft_id":draft,"expected_epoch":0})
+            )["ok"],
+            true
+        );
+    }
+
+    #[test]
+    fn unsaved_setup_test_validates_the_explicitly_enrolled_display() {
+        let mut c = enrolled();
+        begin_setup(&mut c);
+        c.setup.as_mut().unwrap().input_result(Ok(17));
+        c.action(json!({"type":"setup_peer_code","code":crate::setup::input_code(15)}));
+        let inventory = c.inventory.as_ref().unwrap().clone();
+        let draft = c.setup.as_ref().unwrap().draft_id.clone();
+        c.profiles.profiles.clear();
+        assert_eq!(
+            c.action(
+                json!({"type":"setup_test","target":"remote","draft_id":draft,"expected_epoch":0})
+            )["ok"],
+            true
+        );
+        let request = c.worker.shared.0.lock().unwrap().jobs.take().unwrap().1;
+        assert!(require_unique_profile(
+            &request.display_ids,
+            &inventory,
+            &request.config.display_id
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn saved_edit_keeps_static_mapping_across_sleep_but_rejects_old_test() {
+        let mut c = enrolled();
+        discover(&mut c, &[0], true);
+        let id = c.profiles.profiles[0].profile_id.clone();
+        c.action(json!({"type":"setup_edit","profile_id":id}));
+        let draft_id = c.setup.as_ref().unwrap().draft_id.clone();
+        c.lifecycle = || (1, true);
+        c.snapshot();
+        assert!(c.setup.as_ref().unwrap().ready);
+        assert_eq!(
+            c.action(json!({"type":"setup_finish","enable":true}))["ok"],
+            false
+        );
+        assert_eq!(c.policy.ownership(), Ownership::Unknown);
+        assert_eq!(
+            c.action(
+                json!({"type":"setup_test","target":"local","draft_id":draft_id,"expected_epoch":0})
+            )["ok"],
+            false
+        );
+        c.lifecycle = || (2, false);
+        c.snapshot();
+        assert_eq!(
+            c.action(
+                json!({"type":"setup_test","target":"local","draft_id":draft_id,"expected_epoch":0})
+            )["ok"],
+            false
+        );
+        assert!(c.worker.shared.0.lock().unwrap().jobs.take().is_none());
+    }
+
     #[test]
     fn guided_baseline_waits_for_post_request_scan() {
         let mut c = enrolled();

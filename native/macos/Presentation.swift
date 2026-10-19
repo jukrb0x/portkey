@@ -75,6 +75,9 @@ struct SetupState: Decodable, Equatable {
     var peer_preview: PeerPreview?
     var profile_id: String?
     var target_profile_id: String?
+    var draft_id: String?
+    var editing_saved_profile: Bool?
+    var qualification_current: Bool?
 }
 struct SavedProfile: Decodable, Equatable, Identifiable {
     var name: String
@@ -115,6 +118,7 @@ struct Snapshot: Decodable, Equatable {
     var error: Bool
     var lifecycle_ok: Bool
     var sleeping: Bool
+    var lifecycle_epoch: UInt64?
     var language: String
     var config_path: String
     var editing: Bool

@@ -13,6 +13,8 @@ pub struct Setup {
     pub profile_id: String,
     #[serde(default)]
     pub target_profile_id: Option<String>,
+    #[serde(default)]
+    editing_saved_profile: bool,
     pub local_input: Option<u8>,
     pub remote_input: Option<u8>,
     pub code: Option<String>,
@@ -47,6 +49,7 @@ impl Setup {
             name,
             profile_id: crate::profiles::new_profile_id(),
             target_profile_id: None,
+            editing_saved_profile: false,
             local_input: None,
             remote_input: None,
             code: None,
@@ -63,6 +66,23 @@ impl Setup {
             stable_since: None,
             wait_started: None,
         }
+    }
+    pub fn edit_profile(profile: &crate::profiles::Profile) -> Result<Self, String> {
+        profile.config.validate()?;
+        let mut setup = Self::new(profile.config.display_id.clone(), profile.name.clone());
+        setup.profile_id = profile.profile_id.clone();
+        setup.target_profile_id = Some(profile.profile_id.clone());
+        setup.workspace = profile.workspace.clone().unwrap_or_default();
+        setup.workspace.validate()?;
+        setup.product_configured = true;
+        setup.editing_saved_profile = true;
+        setup.hubs = profile.config.hubs.clone();
+        setup.hub_count = setup.hubs.len();
+        setup.local_input = Some(profile.config.local_input);
+        setup.remote_input = Some(profile.config.remote_input);
+        setup.update_ready();
+        setup.code = setup.export().ok();
+        Ok(setup)
     }
     pub fn capture_usb(&mut self) {
         self.interrupted();
@@ -245,6 +265,31 @@ impl Setup {
     pub fn fail(&mut self, message: &str) {
         self.error = true;
         self.message = message.into();
+    }
+    // Static enrollment survives display loss and sleep; runtime ownership and commands do not.
+    pub fn interrupt_with_profiles(&mut self, profiles: &crate::profiles::Profiles) {
+        let saved = profiles.profiles.iter().find(|profile| {
+            self.editing_saved_profile
+                && self.target_profile_id.as_ref() == Some(&profile.profile_id)
+                && self.profile_id == profile.profile_id
+                && self.display_id == profile.config.display_id
+                && self
+                    .config("en")
+                    .is_ok_and(|config| crate::product::same_binding(&config, &profile.config))
+        });
+        if let Some(profile) = saved {
+            self.peer_preview = None;
+            self.baseline.clear();
+            self.stable_since = None;
+            self.wait_started = None;
+            self.hubs = profile.config.hubs.clone();
+            self.local_input = Some(profile.config.local_input);
+            self.remote_input = Some(profile.config.remote_input);
+            self.update_ready();
+            self.message = "Saved connections retained. Automatic switching stays paused until you finish editing.".into();
+        } else {
+            self.interrupted();
+        }
     }
     pub fn interrupted(&mut self) {
         self.peer_preview = None;
@@ -443,7 +488,10 @@ impl Setup {
         drop(file);
         std::fs::rename(temp, path).map_err(|e| format!("Cannot replace draft: {e}"))
     }
-    pub fn load_draft(path: &std::path::Path) -> Result<Self, String> {
+    pub fn load_draft(
+        path: &std::path::Path,
+        profiles: &crate::profiles::Profiles,
+    ) -> Result<Self, String> {
         let bytes = std::fs::read(path).map_err(|e| format!("Cannot read setup draft: {e}"))?;
         if bytes.len() > 65536 {
             return Err("Setup draft is too large.".into());
@@ -452,7 +500,41 @@ impl Setup {
             serde_json::from_slice(&bytes).map_err(|e| format!("Invalid setup draft: {e}"))?;
         crate::product::validate_name(&draft.name)?;
         draft.workspace.validate()?;
-        draft.restart_draft();
+        let saved_binding = draft.editing_saved_profile
+            && draft.config("en").is_ok_and(|config| {
+                profiles.profiles.iter().any(|profile| {
+                    draft.target_profile_id.as_ref() == Some(&profile.profile_id)
+                        && draft.profile_id == profile.profile_id
+                        && crate::product::same_binding(&config, &profile.config)
+                })
+            });
+        if !saved_binding {
+            let interrupted_saved = draft.editing_saved_profile
+                && draft.phase == "display"
+                && draft.local_input.is_none()
+                && draft.remote_input.is_none()
+                && draft.hubs.is_empty();
+            if let Some(profile) = profiles.profiles.iter().find(|profile| {
+                interrupted_saved
+                    && draft.target_profile_id.as_ref() == Some(&profile.profile_id)
+                    && draft.profile_id == profile.profile_id
+                    && draft.display_id == profile.config.display_id
+            }) {
+                let workspace = draft.workspace.clone();
+                let name = draft.name.clone();
+                draft = Self::edit_profile(profile)?;
+                draft.workspace = workspace;
+                draft.workspace.evidence = Default::default();
+                draft.workspace.verification = "not_checked".into();
+                draft.workspace.binding = None;
+                draft.workspace.peer_paused_confirmed = false;
+                draft.workspace.peer_confirmed = false;
+                draft.name = name;
+            } else {
+                draft.restart_draft();
+            }
+        }
+        draft.peer_preview = None;
         draft.draft_saved = true;
         Ok(draft)
     }

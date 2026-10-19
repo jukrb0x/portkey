@@ -1,3 +1,20 @@
+# Saved-profile validation flow correction — 2026-10-19
+
+- User acceptance: on 2026-10-19, the user reported the updated work-profile flow was working. This is user-reported acceptance, without a new instrumented timing or sleep/wake qualification.
+- Replaced the existing-profile four-step re-enrollment UI with a dedicated validation page. Input readings are explicitly calibration, not proof of software switching. Buttons request a real switch; local reclaim has an explicit ten-second countdown so the user can first show the peer picture using the monitor menu. Confirmations remain user observations; command completion never fills them automatically.
+- Enable records user confirmations and saves the same profile in one action. Missing prerequisites are stated inline. Saved input numbers and notes are secondary details. No unattended switching trial was executed during development.
+- Saved calibration survives sleep and transient display loss; worker commands and ownership still invalidate. Interrupted drafts from the previous build recover enrollment only from their exact current stored profile and lose stale qualification/confirmations. Unsaved enrollment still resets after interruption.
+- Delayed tests cancel on setup mutation, navigation, window close, sleep/wake epoch change or a stale timer. Core validates draft identity/power epoch and uses the existing exact-display, bounded manual-command worker. Display disappearance clears pending test state; new enrollment adds its explicitly selected display to worker validation without relaxing ambiguity rules.
+- Validation: 159 Rust tests, 74 Mac state orchestration checks and 27 Mac presentation checks passed; native release build and signature/bundle validation passed. Independent review findings on pending-state cancellation and new-display validation were fixed with regression tests. Live CUA inspection still fails with macOS screen-capture error -3811; an attempted offscreen fixture render was incomplete and does not constitute visual acceptance. Physical switching and sleep were not retested.
+
+# Existing-profile setup editing — 2026-10-19
+
+- Added a macOS Profiles → Edit setup entry that loads the explicitly selected saved profile into review with its display, exact USB topology, input mapping and workspace metadata. Saving updates the same profile ID; opening/cancelling does not rewrite its saved configuration.
+- Automation still requires observations qualified for the current binding. Opening the editor cancels pending commands and pauses this controller without issuing a display write or input probe.
+- Finish later/resume retains an unchanged saved binding only after matching the current stored profile identity and configuration; changed bindings reset pending calibration. Ordinary new-enrollment drafts retain their existing reset behavior. The later correction above supersedes destructive saved-edit invalidation on sleep.
+- Validation: 154 Rust tests, 27 Mac presentation checks and 69 Mac state checks passed. Regression tests cover existing-profile enable/save, cancellation, resume, changed binding and simulated sleep; independent review found no remaining actionable issue.
+- Native release bundle compilation/signature checks are performed for local deployment. Live computer-use inspection was unavailable because macOS screen capture failed; no new physical switching or actual sleep acceptance is claimed.
+
 ## Final menu and icon correction — 2026-10-18
 The popover was replaced by an actual NSMenu; 67 Store/menu and 27 presentation checks passed. Following user feedback on the actual menu bar, reduce arrow symbol from18pt semibold to14pt medium, retaining intrinsic aspect/alignment and the standard status-item hit area. Final native build and strict bundle signature verification passed. Running Mac PID21050, executable SHA25611cf683c8eca52a101393938ccc7dc0b09e41d00b1524f7b1beff30fa208add7. Previous app/config preserved in ignored pre-compact-icon backup; configuration bytes unchanged. No physical switching tests. Windows finalPID80696 delivery remains unchanged.
 
