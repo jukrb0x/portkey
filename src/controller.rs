@@ -10,8 +10,6 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
-const TRANSIENT_MAC_USB_ERROR: &str = "USB inventory changed during enumeration";
-
 struct Probe {
     display_id: String,
     epoch: u64,
@@ -728,6 +726,7 @@ pub struct Controller {
     profile_override: Option<ProfileOverride>,
     profiles: Profiles,
     inventory: Option<Inventory>,
+    inventory_error: Option<String>,
     inventory_received: Option<Instant>,
     status: String,
     error: bool,
@@ -852,6 +851,7 @@ impl Controller {
             draft_snapshot: None,
             display_state: json!({"result":"idle","target":null,"input":null,"visual_confirmed":false}),
             inventory: None,
+            inventory_error: None,
             inventory_received: None,
             started: Instant::now(),
             last_frame: SystemTime::now(),
@@ -875,6 +875,7 @@ impl Controller {
     }
     fn reset(&mut self) {
         self.clear_display_state();
+        self.inventory_error = None;
         self.worker.invalidate();
         self.policy.sleep();
         self.policy.wake(self.started.elapsed().as_millis() as u64);
@@ -928,10 +929,11 @@ impl Controller {
         {
             match result {
                 Ok(inventory) => {
-                    if self.error && self.status == TRANSIENT_MAC_USB_ERROR {
+                    if self.error && self.inventory_error.as_deref() == Some(self.status.as_str()) {
                         self.error = false;
                         self.status.clear();
                     }
+                    self.inventory_error = None;
                     if let Some(setup) = &mut self.setup {
                         if setup.display_id.is_empty() {
                             // Naming and joining happen before explicit monitor selection.
@@ -1010,8 +1012,10 @@ impl Controller {
                     self.inventory = Some(inventory);
                 }
                 Err(e) => {
-                    let transient_mac_usb = cfg!(target_os = "macos")
-                        && e == TRANSIENT_MAC_USB_ERROR
+                    // A failed scan is never ownership evidence. A subsequent complete scan
+                    // may recover only previously established local ownership within Policy's
+                    // bounded window; worker validation still checks the enrolled display.
+                    let recoverable_mac_inventory = cfg!(target_os = "macos")
                         && self.config.is_some()
                         && self.active_profile_id.is_some()
                         && self.setup.is_none()
@@ -1023,16 +1027,27 @@ impl Controller {
                     if let Some(setup) = &mut self.setup {
                         setup.interrupt_with_profiles(&self.profiles);
                     }
-                    if !self.editing && !transient_mac_usb {
+                    if !self.editing && !recoverable_mac_inventory {
                         self.config = None;
                         self.active_profile_id = None;
                     }
-                    if transient_mac_usb {
+                    if recoverable_mac_inventory {
                         self.policy.transient_inventory_error(now);
                     } else {
                         self.policy.observe(Ownership::Unknown, now);
                     }
+                    crate::timing::event(
+                        "inventory_error_policy",
+                        if recoverable_mac_inventory {
+                            "mac_recheck"
+                        } else {
+                            "fail_closed"
+                        },
+                        None,
+                        Some(u64::from(self.policy.has_established_ownership())),
+                    );
                     self.worker.invalidate();
+                    self.inventory_error = Some(e.clone());
                     self.status = e;
                     self.error = true;
                 }
@@ -4787,6 +4802,52 @@ mod tests {
         assert_eq!(remote.target, Target::Remote);
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn other_mac_inventory_failure_then_fresh_absence_dispatches_established_departure() {
+        let mut c = enrolled();
+        c.config = None;
+        c.profiles.profiles[0].config.automatic = true;
+        discover(&mut c, &[0], true);
+        c.started -= Duration::from_secs(1);
+        c.snapshot();
+        assert!(c.worker.shared.0.lock().unwrap().jobs.take().is_some());
+        c.worker.shared.0.lock().unwrap().inventory =
+            Some((0, Err("Display discovery failed".into())));
+        c.snapshot();
+        assert!(c.worker.shared.0.lock().unwrap().jobs.take().is_none());
+        discover(&mut c, &[0], false);
+        assert!(!c.error);
+        assert!(c.status.is_empty());
+        c.started -= Duration::from_secs(1);
+        c.snapshot();
+        let queued = c.worker.shared.0.lock().unwrap().jobs.take();
+        let (_, remote) = queued.expect("fresh settled absence should dispatch after a scan error");
+        assert_eq!(remote.target, Target::Remote);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn mac_scan_error_then_missing_display_cannot_replay_departure() {
+        let mut c = enrolled();
+        c.config = None;
+        c.profiles.profiles[0].config.automatic = true;
+        discover(&mut c, &[0], true);
+        c.started -= Duration::from_secs(1);
+        c.snapshot();
+        assert!(c.worker.shared.0.lock().unwrap().jobs.take().is_some());
+        c.worker.shared.0.lock().unwrap().inventory =
+            Some((0, Err("Display discovery failed".into())));
+        c.snapshot();
+        discover(&mut c, &[], false);
+        assert!(c.config.is_none());
+        discover(&mut c, &[0], false);
+        c.started -= Duration::from_secs(1);
+        c.snapshot();
+        assert!(c.worker.shared.0.lock().unwrap().jobs.take().is_none());
+    }
+
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn unrelated_inventory_failure_then_absence_stays_unknown() {
         let mut c = enrolled();

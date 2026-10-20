@@ -1,8 +1,12 @@
 # Implementation brief — 2026-10-16
 
+## Follow-up Mac departure failure — 2026-10-20
+
+The user reports a new failed single-Mac departure after the v1.0.3 fix. A live private trace at approximately 20:28:15 local time shows an inventory error during USB removal, then repeated fresh complete-absence observations without any Mac remote-input dispatch; USB return at 20:28:32 led to a local command. The trace has no iterator-invalidation retry event, so the earlier recovery for one exact error string did not cover this failure. Treat any Mac inventory error as a bounded loss of observation only when local ownership was previously established and the same qualified profile remains active; require a fresh successful absence, settled policy request and exact display prewrite before switching. Keep Windows, startup, sleep and missing/ambiguous-display behavior fail closed. Do not claim visual acceptance from deterministic replay or command transport. Do not request repeated manual trials.
+
 ## Single-Mac departure reliability — 2026-10-20
 
-The user reports repeated USB departures from Mac toward Windows failing while returns to Mac succeed. The latest incidents have no new trace. Improve the documented Mac IOKit enumeration-invalidation path with bounded recovery from previously established ownership, requiring a fresh complete absent inventory and the existing settled, exact-display write gates. Keep all other unknown/error, startup, profile, and sleep cases fail closed. Build and run locally without asking the user for repeated switching trials; distinguish simulation and transport from visual acceptance. See `docs/RUST-VERIFICATION.md` for implementation evidence.
+The user reports repeated USB departures from Mac toward Windows failing while returns to Mac succeed. At this stage, the latest incidents had no new trace. Improve the documented Mac IOKit enumeration-invalidation path with bounded recovery from previously established ownership, requiring a fresh complete absent inventory and the existing settled, exact-display write gates. Other discovery errors were initially left fail closed; the follow-up above supersedes that error classification for Mac. Startup, profile, and sleep cases remain fail closed. Build and run locally without asking the user for repeated switching trials; distinguish simulation and transport from visual acceptance. See `docs/RUST-VERIFICATION.md` for implementation evidence.
 
 ## Current-format configuration only — authorized 2026-10-18
 
