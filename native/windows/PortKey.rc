@@ -2,8 +2,8 @@
 101 ICON "Assets\\PortKey.ico"
 
 1 VERSIONINFO
- FILEVERSION 1,0,2,4
- PRODUCTVERSION 1,0,2,4
+ FILEVERSION 1,0,3,5
+ PRODUCTVERSION 1,0,3,5
  FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
  FILEFLAGS 0x0L
  FILEOS VOS_NT_WINDOWS32
@@ -14,9 +14,9 @@ BEGIN
   BLOCK "040904b0"
   BEGIN
    VALUE "FileDescription", "PortKey\0"
-   VALUE "FileVersion", "1.0.2\0"
+   VALUE "FileVersion", "1.0.3\0"
    VALUE "ProductName", "PortKey\0"
-   VALUE "ProductVersion", "1.0.2\0"
+   VALUE "ProductVersion", "1.0.3\0"
   END
  END
  BLOCK "VarFileInfo"
