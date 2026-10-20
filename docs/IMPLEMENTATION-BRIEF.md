@@ -1,5 +1,9 @@
 # Implementation brief — 2026-10-16
 
+## Single-Mac departure reliability — 2026-10-20
+
+The user reports repeated USB departures from Mac toward Windows failing while returns to Mac succeed. The latest incidents have no new trace. Improve the documented Mac IOKit enumeration-invalidation path with bounded recovery from previously established ownership, requiring a fresh complete absent inventory and the existing settled, exact-display write gates. Keep all other unknown/error, startup, profile, and sleep cases fail closed. Build and run locally without asking the user for repeated switching trials; distinguish simulation and transport from visual acceptance. See `docs/RUST-VERIFICATION.md` for implementation evidence.
+
 ## Current-format configuration only — authorized 2026-10-18
 
 The user requests removal of historical Swift import and old configuration migration rather than further compatibility work. Remove the import UI/parser/action, old single-file Rust fallback, sibling-app preference lookup and grandfathered automation eligibility. Current-format qualified profiles remain supported. The user approved backing up and clearing existing local profiles and drafts, then configuring anew through the current guide. Complete configuration backups were verified before reset on both platforms; automation starts off. An old/unqualified record is not automatically approved. This supersedes the migration-preservation requirements in earlier delivery sections below. Keep workflow design documents locally under ignored directories; never commit them.

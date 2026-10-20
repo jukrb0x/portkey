@@ -248,6 +248,7 @@ pub struct Policy {
     deadline: Option<u64>,
     manual_anchor: Option<Ownership>,
     stable: Ownership,
+    recover_until: Option<u64>,
 }
 impl Default for Policy {
     fn default() -> Self {
@@ -266,17 +267,26 @@ impl Policy {
             deadline: None,
             manual_anchor: None,
             stable: Ownership::Unknown,
+            recover_until: None,
         }
     }
     pub fn observe(&mut self, value: Ownership, now_ms: u64) {
+        if self.recover_until.is_some_and(|until| now_ms > until) {
+            self.established = false;
+            self.recover_until = None;
+        }
         if self.sleeping || value == self.ownership {
             return;
         }
         self.ownership = value;
         if value == Ownership::Unknown {
             self.established = false;
+            self.recover_until = None;
             self.invalidate();
             return;
+        }
+        if value != Ownership::Partial {
+            self.recover_until = None;
         }
         if matches!(value, Ownership::Owned | Ownership::Absent) {
             if self.manual_anchor.is_some_and(|anchor| anchor != value) {
@@ -298,6 +308,26 @@ impl Policy {
         if value == Ownership::Absent && self.established {
             self.deadline = Some(now_ms.saturating_add(300));
         }
+    }
+    pub fn transient_inventory_error(&mut self, now_ms: u64) {
+        if self.recover_until.is_some_and(|until| now_ms > until) {
+            self.established = false;
+            self.recover_until = None;
+        }
+        let recovering = self.recover_until.is_some_and(|until| now_ms <= until);
+        let owned = self.established
+            && self.stable == Ownership::Owned
+            && matches!(self.ownership, Ownership::Owned | Ownership::Partial);
+        self.recover_until = if recovering {
+            self.recover_until
+        } else if owned {
+            Some(now_ms.saturating_add(5_000))
+        } else {
+            self.established = false;
+            None
+        };
+        self.ownership = Ownership::Unknown;
+        self.invalidate();
     }
     pub fn tick(&mut self, now_ms: u64) -> Option<Request> {
         if self.deadline.is_some_and(|due| now_ms >= due) && self.automatic && !self.sleeping {
@@ -367,6 +397,7 @@ impl Policy {
     fn reset(&mut self) {
         self.invalidate();
         self.established = false;
+        self.recover_until = None;
         self.manual_anchor = None;
         self.stable = Ownership::Unknown;
     }
@@ -454,6 +485,54 @@ mod tests {
         p.observe(Ownership::Unknown, 400);
         p.observe(Ownership::Absent, 500);
         assert!(p.tick(2000).is_none());
+    }
+    #[test]
+    fn brief_inventory_failure_can_recover_an_established_departure() {
+        let mut p = owned();
+        p.transient_inventory_error(400);
+        assert_eq!(p.ownership(), Ownership::Unknown);
+        assert!(p.tick(400).is_none());
+        p.observe(Ownership::Absent, 800);
+        assert!(p.tick(1099).is_none());
+        assert_eq!(p.tick(1100).unwrap().target, Target::Remote);
+    }
+    #[test]
+    fn late_inventory_recovery_cannot_replay_old_ownership() {
+        let mut p = owned();
+        p.transient_inventory_error(400);
+        p.transient_inventory_error(5200);
+        p.observe(Ownership::Absent, 5401);
+        assert!(p.tick(6000).is_none());
+    }
+    #[test]
+    fn partial_recovery_does_not_extend_the_error_window() {
+        let mut p = owned();
+        p.transient_inventory_error(400);
+        p.observe(Ownership::Partial, 800);
+        p.observe(Ownership::Absent, 5401);
+        assert!(p.tick(6000).is_none());
+    }
+    #[test]
+    fn late_repeat_error_after_partial_cannot_restart_recovery() {
+        let mut p = owned();
+        p.transient_inventory_error(400);
+        p.observe(Ownership::Partial, 800);
+        p.transient_inventory_error(5500);
+        p.observe(Ownership::Absent, 5600);
+        assert!(p.tick(6000).is_none());
+    }
+    #[test]
+    fn transient_error_at_startup_or_across_sleep_cannot_handoff() {
+        let mut startup = Policy::new();
+        startup.transient_inventory_error(100);
+        startup.observe(Ownership::Absent, 200);
+        assert!(startup.tick(1000).is_none());
+        let mut sleeping = owned();
+        sleeping.transient_inventory_error(400);
+        sleeping.sleep();
+        sleeping.wake(500);
+        sleeping.observe(Ownership::Absent, 600);
+        assert!(sleeping.tick(1000).is_none());
     }
     #[test]
     fn manual_survives_partial_bounce_but_next_transition_resumes() {

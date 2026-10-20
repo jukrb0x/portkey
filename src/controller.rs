@@ -10,6 +10,8 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
+const TRANSIENT_MAC_USB_ERROR: &str = "USB inventory changed during enumeration";
+
 struct Probe {
     display_id: String,
     epoch: u64,
@@ -926,6 +928,10 @@ impl Controller {
         {
             match result {
                 Ok(inventory) => {
+                    if self.error && self.status == TRANSIENT_MAC_USB_ERROR {
+                        self.error = false;
+                        self.status.clear();
+                    }
                     if let Some(setup) = &mut self.setup {
                         if setup.display_id.is_empty() {
                             // Naming and joining happen before explicit monitor selection.
@@ -993,10 +999,10 @@ impl Controller {
                             let was_present = self
                                 .inventory
                                 .as_ref()
-                                .is_some_and(|i| i.displays.iter().any(|d| d.id == c.display_id));
+                                .map(|i| i.displays.iter().any(|d| d.id == c.display_id));
                             let present = inventory.displays.iter().any(|d| d.id == c.display_id);
                             self.policy.observe(ownership, now);
-                            if present && !was_present {
+                            if present && was_present == Some(false) {
                                 self.policy.monitor_reconnected(now);
                             }
                         }
@@ -1004,17 +1010,28 @@ impl Controller {
                     self.inventory = Some(inventory);
                 }
                 Err(e) => {
+                    let transient_mac_usb = cfg!(target_os = "macos")
+                        && e == TRANSIENT_MAC_USB_ERROR
+                        && self.config.is_some()
+                        && self.active_profile_id.is_some()
+                        && self.setup.is_none()
+                        && !self.editing
+                        && self.lifecycle_ok;
                     self.clear_display_state();
                     self.inventory = None;
                     self.inventory_received = None;
                     if let Some(setup) = &mut self.setup {
                         setup.interrupt_with_profiles(&self.profiles);
                     }
-                    if !self.editing {
+                    if !self.editing && !transient_mac_usb {
                         self.config = None;
                         self.active_profile_id = None;
                     }
-                    self.policy.observe(Ownership::Unknown, now);
+                    if transient_mac_usb {
+                        self.policy.transient_inventory_error(now);
+                    } else {
+                        self.policy.observe(Ownership::Unknown, now);
+                    }
                     self.worker.invalidate();
                     self.status = e;
                     self.error = true;
@@ -4717,8 +4734,9 @@ mod tests {
         assert!(c.worker.shared.0.lock().unwrap().jobs.take().is_none());
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
-    fn inventory_failure_then_absence_does_not_replay_previous_owned_departure() {
+    fn transient_mac_usb_failure_then_fresh_absence_dispatches_established_departure() {
         let mut c = enrolled();
         c.config = None;
         c.profiles.profiles[0].config.automatic = true;
@@ -4730,11 +4748,59 @@ mod tests {
         c.worker.shared.0.lock().unwrap().inventory =
             Some((0, Err("USB inventory changed during enumeration".into())));
         c.snapshot();
-        assert!(c.config.is_none());
+        assert!(c.config.is_some());
         assert!(c.inventory.is_none());
+        assert!(c.error);
         assert_eq!(c.policy.ownership(), Ownership::Unknown);
+        assert!(c.policy.has_established_ownership());
+        assert!(c.worker.shared.0.lock().unwrap().jobs.take().is_none());
+        let config = c.config.as_ref().unwrap();
+        c.worker.shared.0.lock().unwrap().inventory = Some((
+            0,
+            Ok(Inventory {
+                displays: vec![Display {
+                    id: config.display_id.clone(),
+                    label: "test".into(),
+                }],
+                hubs: vec![config.hubs[0].clone()],
+            }),
+        ));
+        c.snapshot();
+        assert_eq!(c.policy.ownership(), Ownership::Partial);
+        assert!(!c.error);
+        assert!(c.status.is_empty());
+        assert!(c.worker.shared.0.lock().unwrap().jobs.take().is_none());
         discover(&mut c, &[0], false);
         assert_eq!(c.policy.ownership(), Ownership::Absent);
+        assert!(!c.error);
+        assert!(c.status.is_empty());
+        assert!(c.policy.has_established_ownership());
+        assert!(c.policy.automatic());
+        c.started -= Duration::from_secs(1);
+        c.snapshot();
+        assert!(
+            c.policy.request().is_some(),
+            "policy did not issue departure"
+        );
+        let remote = c.worker.shared.0.lock().unwrap().jobs.take();
+        let (_, remote) = remote.expect("fresh settled absence should dispatch");
+        assert_eq!(remote.target, Target::Remote);
+    }
+
+    #[test]
+    fn unrelated_inventory_failure_then_absence_stays_unknown() {
+        let mut c = enrolled();
+        c.config = None;
+        c.profiles.profiles[0].config.automatic = true;
+        discover(&mut c, &[0], true);
+        c.started -= Duration::from_secs(1);
+        c.snapshot();
+        assert!(c.worker.shared.0.lock().unwrap().jobs.take().is_some());
+        c.worker.shared.0.lock().unwrap().inventory =
+            Some((0, Err("Display discovery failed".into())));
+        c.snapshot();
+        assert!(c.config.is_none());
+        discover(&mut c, &[0], false);
         c.started -= Duration::from_secs(1);
         c.snapshot();
         assert!(c.worker.shared.0.lock().unwrap().jobs.take().is_none());
